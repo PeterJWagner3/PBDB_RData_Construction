@@ -228,8 +228,9 @@ return(new_occurrence_order);
 }
 
 #### Routines to put probabilities on starts & stops of rock units ####
-find_relevant_sections <- function(rock_unit,rock_superposition)	{
-return(unique(rock_superposition$column[unique(which(rock_superposition==rock_unit,arr.ind = T)[,1])]));
+find_relevant_sections <- function(rock_no,rock_superposition)	{
+return(unique(c(rock_superposition$column[rock_superposition$rock_no_sr_up %in% rock_no],rock_superposition$column[rock_superposition$rock_no_sr_lo %in% rock_no])));
+#return(unique(rock_superposition$column[unique(which(rock_superposition==rock_no,arr.ind = T)[,1])]));
 }
 
 # section <- this_section;
@@ -277,7 +278,7 @@ for (sr in 1:srocks)	{
 
 # putting rocks in order within sections
 # 2021-12-12: altered routine to eliminate basement & top of sections
-accersi_rock_order_in_section <- function(rock_no,section,topdown=F)	{
+accersi_rock_order_in_section <- function(rock_no,section,topdown=FALSE)	{
 rock_order <- as.numeric(rock_no);
 # find rocks underneath unit rock_no
 start <- match(rock_no,section$rock_no_sr_up);
@@ -301,16 +302,1355 @@ if (!topdown)
 return(rock_order);
 }
 
-accersi_number_of_sections <- function(rock_no_sr,superpositions)	{
-links <- subset(superpositions,superpositions$rock_no_sr_up==rock_no_sr);
-links <- rbind(links,subset(superpositions,superpositions$rock_no_sr_lo==rock_no_sr));
+accersi_number_of_sections <- function(rock_no_sr,rock_superposition)	{
+links <- subset(rock_superposition,rock_superposition$rock_no_sr_up==rock_no_sr);
+links <- rbind(links,subset(rock_superposition,rock_superposition$rock_no_sr_lo==rock_no_sr));
 return(sum(length(unique(links$column))));
 }
 
-accersi_named_sections <- function(rock_no_sr,superpositions)	{
-links <- subset(superpositions,superpositions$rock_no_sr_up==rock_no_sr);
-links <- rbind(links,subset(superpositions,superpositions$rock_no_sr_lo==rock_no_sr));
+accersi_named_sections <- function(rock_no_sr,rock_superposition)	{
+links <- subset(rock_superposition,rock_superposition$rock_no_sr_up==rock_no_sr);
+links <- rbind(links,subset(rock_superposition,rock_superposition$rock_no_sr_lo==rock_no_sr));
 return(sort(unique(links$column)));
+}
+
+# constrain rock ages simply from age limits on rocks above or below.
+constrain_rock_ages_in_section_basic <- function(this_section_info)	{
+srocks <- nrow(this_section_info);
+if (srocks==1)	return(this_section_info);
+lo_rocks <- 1:(srocks-1);
+hi_rocks <- 2:srocks;
+too_young_end_ub <- lo_rocks[this_section_info$end_ub[lo_rocks]<this_section_info$onset_ub[hi_rocks]];
+this_section_info$end_ub[too_young_end_ub] <- this_section_info$onset_ub[too_young_end_ub+1];
+too_old_onset_lb <- hi_rocks[this_section_info$end_lb[lo_rocks]<this_section_info$onset_lb[hi_rocks]];
+this_section_info$onset_lb[too_old_onset_lb] <- this_section_info$end_lb[too_old_onset_lb-1];
+for (sr in srocks:2)	{
+	if (this_section_info$end_lb[sr]>this_section_info$end_lb[sr-1])	{
+		if (this_section_info$end_lb[sr]>this_section_info$end_ub[sr-1])	{
+			this_section_info$end_lb[sr] <- this_section_info$end_lb[sr-1];
+			} else	{
+			this_section_info$end_lb[sr-1] <- this_section_info$end_lb[sr];
+			}
+		}
+	}
+for (sr in 1:(srocks-1))	{
+	if (this_section_info$onset_ub[sr]<this_section_info$onset_ub[sr+1])	{
+		if (this_section_info$onset_ub[sr]<this_section_info$onset_lb[sr+1])	{
+			this_section_info$onset_ub[sr] <- this_section_info$onset_ub[sr+1];
+			} else	{
+			this_section_info$onset_ub[sr+1] <- this_section_info$onset_ub[sr];
+			}
+		}
+	}
+return(this_section_info);
+}
+
+# use either biozone or isotope data to limit maximum & minimum onsets & ends of rocks within sections nrow(rock_zone_info)
+constrain_rock_ages_in_section_with_zones <- function(this_section_info,rock_zone_info)	{
+this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+#print(this_section_info);
+srocks <- nrow(this_section_info);
+zone_rocks <- this_section_info$rock_no[this_section_info$rock_no %in% c(rock_zone_info$rock_no_sr,rock_zone_info$formation_no)];
+colnames(rock_zone_info) <- gsub("excursion","zone",colnames(rock_zone_info));
+zrocks <- length(zone_rocks);
+sr <- zr <- 0;
+zoneless <- this_section_info$rock_no[!this_section_info$rock_no %in% zone_rocks];
+while (sr < srocks && zr < zrocks)	{
+	sr <- sr+1;
+	srock_no <- this_section_info$rock_no[sr];
+	while (!srock_no %in% zone_rocks)	{
+		sr <- sr+1;
+		srock_no <- this_section_info$rock_no[sr];
+		}
+	lo_rocks <- hi_rocks <- c();
+	if (sr>1)				lo_rocks <- 1:(sr-1);
+	if (sr<srocks)	hi_rocks <- (sr+1):srocks;
+#	print(sr);
+	if (srock_no %in% zone_rocks)	{
+		zr <- zr+1;
+		rock_zones <- rock_zone_info[rock_zone_info$rock_no_sr %in% srock_no | rock_zone_info$formation_no %in% srock_no,]
+		rock_zones <- rock_zones[unique(match(rock_zones$zone_no,rock_zones$zone_no)),];
+		rock_zones <- rock_zones[rock_zones$ma_ub<this_section_info$onset_lb[sr] & rock_zones$ma_lb>this_section_info$end_ub[sr],];
+		rock_zones <- rock_zones[order(-rock_zones$ma_lb),];
+		}
+	if (srock_no %in% zone_rocks && nrow(rock_zones)>0)	{
+		#print(srock_no);
+		rock_zones$rock_no_sr <- srock_no;
+		rock_zone_span <- data.frame(fa_lb=max(rock_zones$ma_lb),fa_ub=max(rock_zones$ma_ub),la_lb=min(rock_zones$ma_lb),la_ub=min(rock_zones$ma_ub));
+		#print(rock_zone_span);
+#		this_section_info$onset_ub[sr] <- max(this_section_info$onset_ub[sr],rock_zone_span$fa_ub);
+#		this_section_info$end_lb[sr] <- min(this_section_info$end_lb[sr],rock_zone_span$la_lb);
+		this_section_info$onset_ub[sr] <- rock_zone_span$fa_ub;	# latest possible onset
+		this_section_info$end_lb[sr] <- 	rock_zone_span$la_lb;		# earliest possible end
+		#print(this_section_info);
+
+		if (srocks>1 && sr<srocks && this_section_info$rock_no[sr+1] %in% zone_rocks)	{
+			future_zones <- rock_zone_info[rock_zone_info$rock_no_sr %in% this_section_info$rock_no[sr+1] | rock_zone_info$formation_no %in% this_section_info$rock_no[sr+1],];
+			future_zones <- future_zones[unique(match(future_zones$zone_no,future_zones$zone_no)),];
+			future_zones <- future_zones[order(-future_zones$ma_lb),];
+			future_zones <- future_zones[future_zones$ma_ub<this_section_info$onset_lb[sr+1] & future_zones$ma_lb>this_section_info$end_ub[sr+1],];
+			if (nrow(future_zones)>0)	{
+				future_zone_span <- data.frame(fa_lb=max(future_zones$ma_lb),fa_ub=max(future_zones$ma_ub),la_lb=min(future_zones$ma_lb),la_ub=min(future_zones$ma_ub));
+				overlapping_zones <- unique(rbind(rock_zones[rock_zones$ma_lb<=future_zone_span$fa_lb & rock_zones$ma_ub>=future_zone_span$la_ub,],
+																					rock_zones[rock_zones$zone_no %in% future_zone_span$zone_no | rock_zones$zone %in% future_zone_span$zone,],
+																					future_zones[future_zones$ma_lb<=rock_zone_span$fa_lb & future_zones$ma_ub>=rock_zone_span$la_ub,],
+																					future_zones[future_zones$zone_no %in% rock_zones$zone_no | future_zones$zone %in% rock_zones$zone,]));
+#			overlapping_zones <- overlapping_zones[unique(match(overlapping_zones$zone_no,overlapping_zones$zone_no)),];
+				overlapping_zones <- overlapping_zones[order(-overlapping_zones$ma_lb,overlapping_zones$ma_lb),];
+				if (nrow(overlapping_zones)>0)	{
+				# rock must end in this zone/excursion
+					if (srock_no %in% overlapping_zones$rock_no_sr)	{
+						# the boundaries could be within any of the overlapping zones/excursions in this section
+						overlapping_zones <- overlapping_zones[overlapping_zones$rock_no_sr %in% srock_no,];
+						this_section_info$end_lb[sr] <- max(overlapping_zones$ma_lb);
+						this_section_info$end_ub[sr] <- min(overlapping_zones$ma_ub);
+						} else	{
+						this_section_info$end_lb[sr] <- max(overlapping_zones$ma_lb);
+						this_section_info$end_ub[sr] <- min(overlapping_zones$ma_ub);
+						}
+#					print(this_section_info);
+					}		# end redating possible end given higher rock zones
+				}		# end redating possible end given higher rock zones
+			} else if (sr<srocks)	{# end search for overlapping zones with higher rock
+			nr <- sr+1;
+			this_section_info$end_ub[nr] <- min(rock_zone_span$fa_ub,this_section_info$end_ub[nr]);
+			this_section_info$end_lb[nr] <- min(rock_zone_span$la_lb,this_section_info$end_lb[nr]);
+			this_section_info$onset_ub[nr] <- min(rock_zone_span$la_ub,this_section_info$onset_ub[nr]);
+			this_section_info$onset_lb[nr] <- min(rock_zone_span$la_lb,this_section_info$onset_lb[nr]);
+			}
+		if (sr>1 && this_section_info$rock_no[sr-1] %in% zone_rocks)		{
+			prior_zones <- rock_zone_info[rock_zone_info$rock_no_sr %in% this_section_info$rock_no[sr-1] | rock_zone_info$formation_no %in% this_section_info$rock_no[sr-1],];
+			prior_zones <- prior_zones[unique(match(prior_zones$zone_no,prior_zones$zone_no)),];
+			prior_zones <- prior_zones[order(-prior_zones$ma_lb),];
+			prior_zones <- prior_zones[prior_zones$ma_ub<this_section_info$onset_lb[sr-1] & prior_zones$ma_lb>this_section_info$end_ub[sr-1],];
+			prior_zone_spans <- data.frame(fa_lb=max(prior_zones$ma_lb),fa_ub=max(prior_zones$ma_ub),la_lb=min(prior_zones$ma_lb),la_ub=min(prior_zones$ma_ub));
+			overlapping_zones <- unique(rbind(rock_zones[rock_zones$ma_lb<=prior_zone_spans$fa_lb & rock_zones$ma_ub>=prior_zone_spans$la_ub,],
+																				rock_zones[rock_zones$zone_no %in% prior_zones$zone_no | rock_zones$zone %in% prior_zones$zone,],
+																				prior_zones[prior_zones$ma_lb<=rock_zone_span$fa_lb & prior_zones$ma_ub>=rock_zone_span$la_ub,],
+																				prior_zones[prior_zones$zone_no %in% rock_zones$zone_no | prior_zones$zone %in% rock_zones$zone,]));
+			if (nrow(overlapping_zones)>0)	{
+				# rock must end in this zone/excursion
+				if (srock_no %in% overlapping_zones$rock_no_sr)	{
+					# the boundaries could be within any of the overlapping zones/excursions in this section
+					overlapping_zones <- overlapping_zones[overlapping_zones$rock_no_sr %in% srock_no,];
+					this_section_info$onset_lb[sr] <- max(overlapping_zones$ma_lb[overlapping_zones$rock_no_sr %in% srock_no]);
+					this_section_info$onset_ub[sr] <- min(overlapping_zones$ma_ub[overlapping_zones$rock_no_sr %in% srock_no]);
+					} else	{
+					this_section_info$onset_lb[sr] <- max(overlapping_zones$ma_lb);
+					this_section_info$onset_ub[sr] <- min(overlapping_zones$ma_ub);
+					}
+				}
+			} else if (sr>1)	{ # end search for overlapping zones with lower rock
+			pr <- sr-1;
+			this_section_info$end_ub[pr] <- max(rock_zone_span$fa_ub,this_section_info$end_ub[pr]);
+			this_section_info$onset_ub[pr] <- max(rock_zone_span$fa_ub,this_section_info$onset_ub[pr]);
+			this_section_info$end_lb[pr] <- max(rock_zone_span$fa_lb,this_section_info$end_lb[pr]);
+			}
+		lo_zoneless <- lo_rocks[this_section_info$rock_no[lo_rocks] %in% zoneless];
+		this_section_info$end_ub[lo_zoneless][this_section_info$end_ub[lo_zoneless]<rock_zone_span$la_ub] <- rock_zone_span$la_ub;
+		this_section_info$onset_ub[lo_zoneless][this_section_info$onset_ub[lo_zoneless]<rock_zone_span$fa_ub] <- rock_zone_span$fa_ub;
+		hi_zoneless <- hi_rocks[this_section_info$rock_no[hi_rocks] %in% zoneless];
+		this_section_info$onset_lb[hi_zoneless][this_section_info$onset_lb[hi_zoneless]>rock_zone_span$fa_lb] <- rock_zone_span$fa_lb;
+		this_section_info$end_lb[hi_zoneless][this_section_info$end_lb[hi_zoneless]>rock_zone_span$la_lb] <- rock_zone_span$la_lb;
+#		print(this_section_info);
+		} else	{ # end refining dates based on zone as none of the zones are relevant here.
+#		zone_rocks <- zone_rocks[!zone_rocks %in% srock_no];
+#		zr <- zr-1;
+		} # these zones don't apply to this section
+
+	} # end refining dates for this rock
+#print(this_section_info);
+this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+#print(this_section_info);
+return(this_section_info);
+}
+
+# use dated beds to limit maximum & minimum onsets & ends of rocks within sections
+constrain_rock_ages_in_section_with_dated_beds <- function(this_section_info,radiometric_dates)	{
+#this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+srocks <- nrow(this_section_info);
+hot_rocks <- this_section_info$rock_no[this_section_info$rock_no %in% c(radiometric_dates$rock_no_sr,radiometric_dates$formation_no)];
+wallflowers <- this_section_info$rock_no[!this_section_info$rock_no %in% hot_rocks];
+hrocks <- length(hot_rocks);
+sr <- hr <- 0;
+while (sr < srocks && hr < hrocks)	{
+	sr <- sr+1;
+	while (!this_section_info$rock_no[sr] %in% hot_rocks)	sr <- sr+1;
+	lo_rocks <- hi_rocks <- c();
+	if (sr>1)				lo_rocks <- (2:sr)-1;
+	if (sr<srocks)	hi_rocks <- (sr+1):srocks;
+	srock_no <- this_section_info$rock_no[sr];
+	if (srock_no %in% hot_rocks)	{
+		hr <- hr+1;
+		rock_dates <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% srock_no,],radiometric_dates[radiometric_dates$formation_no %in% srock_no,]));
+#		if (nrow(rock_dates)==0)	which(radiometric_dates==srock_no,arr.ind=T)
+		colnames(rock_dates) <- gsub("_event_bed","",colnames(rock_dates));
+		rock_dates <- rock_dates[rock_dates$ma_ub<this_section_info$onset_lb[sr] & rock_dates$ma_lb>this_section_info$end_ub[sr],];
+		if (nrow(rock_dates)==0)	break;
+		rock_dates$rock_no_sr <- srock_no;
+#		orig_date_span <- data.frame(fa_lb=max(this_section_info$onset_lb[sr]),fa_ub=max(this_section_info$onset_ub[sr]),la_lb=min(this_section_info$end_lb[sr]),la_ub=min(this_section_info$end_ub[sr]));
+		orig_date_span <- this_section_info[sr,];
+		rock_date_span <- data.frame(fa_lb=max(rock_dates$ma_lb),fa_ub=max(rock_dates$ma_ub),la_lb=min(rock_dates$ma_lb),la_ub=min(rock_dates$ma_ub));
+		if (rock_date_span$fa_ub<orig_date_span$onset_lb)
+			rock_date_span$fa_lb <- orig_date_span$onset_lb; # move oldest possible age only if some youngest possible date is older than the rock currently is
+		rock_date_span$la_lb <- min(rock_date_span$la_lb,this_section_info$end_lb[sr]);
+		rock_date_span$fa_ub <- max(rock_date_span$fa_ub,this_section_info$onset_ub[sr]);
+		if (rock_date_span$la_lb>orig_date_span$end_ub)
+			rock_date_span$la_ub <- orig_date_span$end_ub; # move youngest possible age only if some oldest possible date is younger than the rock currently is
+		if (nrow(rock_dates)>0)	{
+			if (sr < srocks && this_section_info$rock_no[sr+1] %in% hot_rocks)	{
+				hrock_no <- this_section_info$rock_no[sr+1];
+				higher_hot_rocks <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% hrock_no,],radiometric_dates[radiometric_dates$formation_no %in% hrock_no,]));
+				colnames(higher_hot_rocks) <- gsub("_event_bed","",colnames(higher_hot_rocks));
+				higher_hot_rocks$rock_no_sr <- hrock_no;
+				higher_date_span <- data.frame(fa_lb=max(higher_hot_rocks$ma_lb),fa_ub=max(higher_hot_rocks$ma_ub),la_lb=min(higher_hot_rocks$ma_lb),la_ub=min(higher_hot_rocks$ma_ub));
+				overlapping_dates <- unique(rbind(rock_dates[rock_dates$ma_lb<=higher_date_span$fa_lb & rock_dates$ma_ub>=higher_date_span$la_ub,],
+																					higher_hot_rocks[higher_hot_rocks$ma_lb<=rock_date_span$fa_lb & higher_hot_rocks$ma_ub>=rock_date_span$la_ub,]));
+				if (nrow(overlapping_dates)>0)	{
+					if (srock_no %in% overlapping_dates$rock_no_sr && hrock_no %in% overlapping_dates$rock_no_sr)	{
+						this_section_info$end_lb[sr] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																								max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% hrock_no]));
+#						this_section_info$onset_ub[sr+1] <- this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+						this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																								max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+						this_section_info$onset_lb[sr+1] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																										max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% hrock_no]))
+						this_section_info$onset_ub[sr+1] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																										max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]))
+						} else	{
+						# check out this part: what to do when overlapping ages come only from younger rock.
+						this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+						# rock must start and end by time higher rock starts;
+						this_section_info$onset_ub[sr] <- max(this_section_info$onset_ub[sr],max(overlapping_dates$ma_ub));
+						this_section_info$end_ub[sr] <- max(this_section_info$end_ub[sr],max(overlapping_dates$ma_ub));
+						}
+					} else	{
+					this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+					}
+				} else	{
+				this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+				}
+
+			if (sr >1 && this_section_info$rock_no[sr-1] %in% hot_rocks)	{
+				rock_dates <- rock_dates[order(-rock_dates$ma_lb,rock_dates$ma_ub),];
+				lrock_no <- this_section_info$rock_no[sr-1];
+				lower_hot_rocks <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% lrock_no,],radiometric_dates[radiometric_dates$formation_no %in% lrock_no,]));
+				colnames(lower_hot_rocks) <- gsub("_event_bed","",colnames(lower_hot_rocks));
+				lower_hot_rocks$rock_no_sr <- lrock_no;
+				lower_hot_rocks <- lower_hot_rocks[order(-lower_hot_rocks$ma_ub,lower_hot_rocks$ma_lb),];
+				lower_date_span <- data.frame(fa_lb=max(lower_hot_rocks$ma_lb),fa_ub=max(lower_hot_rocks$ma_ub),la_lb=min(lower_hot_rocks$ma_lb),la_ub=min(lower_hot_rocks$ma_ub));
+				overlapping_dates <- unique(rbind(rock_dates[rock_dates$ma_lb>lower_date_span$la_ub,],
+																					lower_hot_rocks[lower_hot_rocks$ma_ub<=rock_date_span$fa_lb,]));
+				if (nrow(overlapping_dates)>0)	{
+					if (srock_no %in% overlapping_dates$rock_no_sr && lrock_no %in% overlapping_dates$rock_no_sr)	{
+						this_section_info$onset_lb[sr] <- max(max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																									min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% lrock_no]));
+						this_section_info$onset_ub[sr] <- max(max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																									min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% lrock_no]));
+#						this_section_info$end_lb[sr] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+#																								max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% lrock_no]));
+#						this_section_info$onset_ub[sr+1] <- this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+#						this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+#																								max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% lrock_no]));
+						} else	{
+						# rock cannot start before the earliest ending date of lower rock;
+						this_section_info$onset_lb[sr] <- min(this_section_info$onset_lb[sr],min(overlapping_dates$ma_lb));
+						this_section_info$onset_ub[sr] <- max(this_section_info$onset_ub[sr],rock_date_span$fa_ub);
+						}
+					} else	{
+					this_section_info$onset_ub[sr] <- rock_date_span$fa_ub;
+					}
+				} else	{
+				this_section_info$onset_ub[sr] <- rock_date_span$fa_ub;
+				}
+
+			changed_data_span <- as.data.frame(orig_date_span!=this_section_info[sr,]);
+			lo_wallflower <- lo_rocks[this_section_info$rock_no[lo_rocks] %in% wallflowers];
+			#this_section_info$end_ub[lo_wallflower][this_section_info$end_ub[lo_wallflower]<this_section_info$end_ub[sr]] <- this_section_info$end_ub[sr];
+			if (changed_data_span$onset_ub)	this_section_info$onset_ub[lo_wallflower][this_section_info$onset_ub[lo_wallflower]<this_section_info$onset_ub[sr]] <- this_section_info$onset_ub[sr];
+			hi_wallflower <- hi_rocks[this_section_info$rock_no[hi_rocks] %in% wallflowers];
+			this_section_info$onset_lb[hi_wallflower][this_section_info$onset_lb[hi_wallflower]>this_section_info$onset_lb[sr]] <- this_section_info$onset_lb[sr];
+			this_section_info$end_lb[hi_wallflower][this_section_info$end_lb[hi_wallflower]>this_section_info$end_lb[sr]] <- this_section_info$end_lb[sr];
+			}
+#		print(this_section_info);
+		}
+	}
+this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+return(this_section_info);
+}
+
+# use either biozone or isotope data to limit maximum & minimum onsets & ends of rocks within sections
+# simple routine to constrain upper & lower bounds of rock onsets & ends given zones/isotopes;
+constrain_rock_ages_in_section_with_zone_data_old <- function(this_section_info,rock_zone_info)	{
+srocks <- nrow(this_section_info);
+colnames(rock_zone_info) <- gsub("excursion","zone",colnames(rock_zone_info));
+zoned_rocks <- this_section_info$rock_no[this_section_info$rock_no %in% rock_zone_info$rock_no_sr | this_section_info$rock_no %in% rock_zone_info$formation_no];
+zr <- sr <- 0
+while (sr < srocks && zr < length(zoned_rocks))	{
+	sr <- sr+1;
+	srock_no <- this_section_info$rock_no[sr];
+	lo_rocks <- hi_rocks <- c();
+	if (sr > 1)	lo_rocks <- 1:(sr-1);
+	if (sr < srocks)	hi_rocks <- (sr+1):srocks;
+	if (srock_no %in% zoned_rocks)	{
+		zr <- zr+1;
+		zone_dated <- FALSE;
+		rock_zones <- rock_zone_info[rock_zone_info$rock_no_sr==srock_no | rock_zone_info$formation_no==srock_no,];
+#		rock_zones$rock_no <- rock_zones$rock_no_sr <- srock_no;
+		rock_zones <- rock_zones[match(rock_zones$zone_no,rock_zones$zone_no),];
+		rock_zones <- rock_zones[unique(match(rock_zones$zone_no,rock_zones$zone_no)),];
+		rock_zones <- rock_zones[order(-rock_zones$ma_lb),];
+		rock_zone_span <- data.frame(fa_lb=max(rock_zones$ma_lb),fa_ub=max(rock_zones$ma_ub),la_lb=min(rock_zones$ma_lb),la_ub=min(rock_zones$ma_ub));
+		# set lower bounds
+		# if the oldest zone makes the rock be older, then redate accordingly.
+		if (sr>1 && this_section_info$rock_no[sr-1] %in% zoned_rocks)	{
+			prior_zones <- rock_zone_info[rock_zone_info$rock_no_sr %in% this_section_info$rock_no[sr-1] | rock_zone_info$formation_no %in% this_section_info$rock_no[sr-1],];
+			prior_zones <- prior_zones[unique(match(prior_zones$zone_no,prior_zones$zone_no)),];
+			prior_zones <- prior_zones[order(-prior_zones$ma_lb),];
+			prior_zone_spans <- data.frame(fa_lb=max(prior_zones$ma_lb),fa_ub=max(prior_zones$ma_ub),la_lb=min(prior_zones$ma_lb),la_ub=min(prior_zones$ma_ub));
+			overlapping_zones <- unique(rbind(prior_zones[prior_zones$ma_lb<=rock_zone_span$fa_lb & prior_zones$ma_ub>=rock_zone_span$la_ub,],
+																				prior_zones[prior_zones$zone_no %in% rock_zones$zone_no | prior_zones$zone %in% rock_zones$zone,],
+																				rock_zones[rock_zones$ma_lb<=prior_zone_spans$fa_lb & rock_zones$ma_ub>=prior_zone_spans$la_ub,],
+																				rock_zones[prior_zones$zone_no %in% prior_zone_spans$zone_no | rock_zones$zone %in% prior_zone_spans$zone,]));
+			overlapping_zones <- overlapping_zones[unique(match(overlapping_zones$zone_no,overlapping_zones$zone_no)),];
+			overlapping_zones <- overlapping_zones[order(-overlapping_zones$ma_lb,overlapping_zones$ma_lb),];
+			if (nrow(overlapping_zones)>0)	{
+				# this rock must start during the shared zones
+				if (srock_no %in% overlapping_zones$rock_no_sr)	{
+					this_section_info$onset_lb[sr] <- max(overlapping_zones$ma_lb[overlapping_zones$rock_no_sr==srock_no]);
+					this_section_info$onset_ub[sr] <- max(overlapping_zones$ma_ub[overlapping_zones$rock_no_sr==srock_no]);
+					} else	{
+					this_section_info$onset_lb[sr] <- max(overlapping_zones$ma_lb);
+					this_section_info$onset_ub[sr] <- max(overlapping_zones$ma_ub);
+					}
+				# this rock cannot end before the end of the zones
+				this_section_info$end_lb[sr] <- min(this_section_info$end_lb[sr],min(overlapping_zones$ma_lb));
+				this_section_info$end_ub[sr] <- min(this_section_info$end_ub[sr],min(overlapping_zones$ma_ub));
+#				zone_dated <- TRUE;
+				} else	{
+				# must start after zones from lower rock
+				this_section_info$onset_lb[sr] <- min(this_section_info$onset_lb[sr],min(prior_zones$ma_ub));
+				this_section_info$onset_ub[sr] <- min(this_section_info$onset_ub[sr],min(prior_zones$ma_ub));
+				# also must end after zones from lower rock
+				this_section_info$end_lb[sr] <- min(this_section_info$end_lb[sr],min(prior_zones$ma_ub));
+				this_section_info$end_ub[sr] <- min(this_section_info$end_ub[sr],min(prior_zones$ma_ub));
+#				zone_dated <- TRUE;
+				}
+			} else	{
+			# This rock has zones but the lower one does not
+			this_section_info$onset_lb[sr] <- max(this_section_info$onset_lb[sr],max(rock_zones$ma_lb));
+			this_section_info$onset_ub[sr] <- max(this_section_info$onset_ub[sr],max(rock_zones$ma_ub));
+#			zone_dated <- TRUE;
+			}
+		# set upper bounds
+		# if the younger zone means the rock be younger, then redate accordingly.
+		if (sr<srocks && this_section_info$rock_no[sr+1] %in% zoned_rocks)	{
+			future_zones <- rock_zone_info[rock_zone_info$rock_no_sr %in% this_section_info$rock_no[sr+1] | rock_zone_info$formation_no %in% this_section_info$rock_no[sr+1],];
+			future_zones <- future_zones[unique(match(future_zones$zone_no,future_zones$zone_no)),];
+			future_zones <- future_zones[order(-future_zones$ma_lb),];
+			future_zone_span <- data.frame(fa_lb=max(future_zones$ma_lb),fa_ub=max(future_zones$ma_ub),la_lb=min(future_zones$ma_lb),la_ub=min(future_zones$ma_ub));
+			overlapping_zones <- unique(rbind(future_zones[future_zones$ma_lb<=rock_zone_span$fa_lb & future_zones$ma_ub>=rock_zone_span$la_ub,],
+																				future_zones[future_zones$zone_no %in% rock_zones$zone_no | future_zones$zone %in% rock_zones$zone,],
+																				rock_zones[rock_zones$ma_lb<=future_zone_span$fa_lb & rock_zones$ma_ub>=future_zone_span$la_ub,],
+																				rock_zones[future_zones$zone_no %in% future_zone_span$zone_no | rock_zones$zone %in% future_zone_span$zone,]));
+			overlapping_zones <- overlapping_zones[unique(match(overlapping_zones$zone_no,overlapping_zones$zone_no)),];
+			overlapping_zones <- overlapping_zones[order(-overlapping_zones$ma_lb,overlapping_zones$ma_lb),];
+#			overlapping_zones <- rock_zones[rock_zones$zone_no %in% future_zones$zone_no | rock_zones$zone %in% future_zones$zone,];
+			if (nrow(overlapping_zones)>0)	{
+				# rock must end in this zone/excursion
+				if (srock_no %in% overlapping_zones$rock_no_sr)	{
+					this_section_info$end_lb[sr] <- min(overlapping_zones$ma_lb[overlapping_zones$rock_no_sr %in% srock_no]);
+					this_section_info$end_ub[sr] <- min(overlapping_zones$ma_ub[overlapping_zones$rock_no_sr %in% srock_no]);
+					} else	{
+					this_section_info$end_lb[sr] <- min(overlapping_zones$ma_lb);
+					this_section_info$end_ub[sr] <- min(overlapping_zones$ma_ub);
+					}
+				} else	{
+				# next rock unit sees a different zone/excursion;
+				# This rock must be done before the overlying zone/excursions start
+				this_section_info$end_lb[sr] <- max(this_section_info$end_lb[sr],min(rock_zones$ma_ub));
+				this_section_info$end_ub[sr] <- max(this_section_info$end_ub[sr],min(future_zones$ma_ub));
+				# This rock must end before that its zone/excursion end
+				# This rock cannot end before that its zone/excursion starts
+#				this_section_info$end_lb[sr] <- min(this_section_info$end_lb[sr],min(rock_zones$ma_lb));
+				}
+			} else {
+#			} else if (!zone_dated)	{
+			# rock ends at earliest youngest zone/excursion ends;
+#			this_section_info$onset_lb[sr] <- max(this_section_info$onset_lb[sr],max(rock_zones$ma_lb));
+#			this_section_info$onset_ub[sr] <- max(this_section_info$onset_ub[sr],max(rock_zones$ma_ub));
+			this_section_info$end_lb[sr] <- min(this_section_info$end_lb[sr],min(rock_zones$ma_lb));
+			this_section_info$end_ub[sr] <- min(this_section_info$end_ub[sr],min(rock_zones$ma_ub));
+#			zone_dated <- TRUE;
+			}
+		if (max(rock_zones$ma_ub)>this_section_info$onset_lb[sr])	this_section_info$onset_lb[sr] <- max(rock_zones$ma_ub);
+		if (sr>1)	{
+			too_young_ons_lb <- lo_rocks[this_section_info$onset_lb[lo_rocks]<this_section_info$onset_lb[sr]];
+			too_young_ons_ub <- lo_rocks[this_section_info$onset_ub[lo_rocks]<this_section_info$onset_ub[sr]];
+			too_young_end_lb <- lo_rocks[this_section_info$end_lb[lo_rocks]<this_section_info$end_lb[sr]];
+			too_young_end_ub <- lo_rocks[this_section_info$end_ub[lo_rocks]<this_section_info$end_ub[sr]];
+			# older rocks must start before the oldest zone;
+			this_section_info$onset_lb[too_young_ons_lb] <- this_section_info$onset_lb[sr];
+			# older rocks must start before the oldest zone ends;
+			this_section_info$onset_ub[too_young_ons_ub] <- this_section_info$onset_ub[sr];
+			# older rocks must end before the oldest zone ends;
+			this_section_info$end_lb[too_young_end_lb] <- this_section_info$end_lb[sr];
+			this_section_info$end_ub[too_young_end_ub] <- this_section_info$end_ub[sr];
+			}
+		if (sr<srocks)	{
+			# make sure higher rocks do not have overly old dates
+			too_old_ons_lb <- hi_rocks[this_section_info$onset_lb[hi_rocks]>this_section_info$onset_lb[sr]];
+			too_old_ons_ub <- hi_rocks[this_section_info$onset_ub[hi_rocks]>this_section_info$onset_ub[sr]];
+			too_old_end_lb <- hi_rocks[this_section_info$end_lb[hi_rocks]>this_section_info$end_lb[sr]];
+			too_old_end_ub <- hi_rocks[this_section_info$end_ub[hi_rocks]>this_section_info$end_ub[sr]];
+			this_section_info$onset_lb[too_old_ons_lb] <- this_section_info$onset_lb[sr];
+			this_section_info$onset_ub[too_old_ons_ub] <- this_section_info$onset_ub[sr];
+			this_section_info$end_lb[too_old_end_lb] <- this_section_info$end_lb[sr];
+			this_section_info$end_ub[too_old_end_ub] <- this_section_info$end_ub[sr];
+			}
+		}
+#	print(this_section_info);
+	}
+too_old_ons_lb <- (2:srocks)[this_section_info$onset_lb[2:srocks]>this_section_info$end_lb[1:(srocks-1)]];
+this_section_info$onset_lb[too_old_ons_lb] <- this_section_info$end_lb[too_old_ons_lb-1];
+too_young_end_ub <- (1:(srocks-1))[this_section_info$end_ub[(1:(srocks-1))]<this_section_info$onset_ub[2:srocks]];
+this_section_info$end_ub[too_young_end_ub] <- this_section_info$end_lb[too_young_end_ub+1];
+
+return(this_section_info);
+}
+
+# use radiometric dates to limit rock ages within sections
+constrain_rock_ages_in_section_with_dated_beds_old <- function(this_section_info,radiometric_dates)	{
+#this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+srocks <- nrow(this_section_info);
+hot_rocks <- this_section_info$rock_no[this_section_info$rock_no %in% c(radiometric_dates$rock_no_sr,radiometric_dates$formation_no)];
+wallflowers <- this_section_info$rock_no[!this_section_info$rock_no %in% hot_rocks];
+hrocks <- length(hot_rocks);
+sr <- hr <- 0;
+while (sr < srocks && hr < hrocks)	{
+	sr <- sr+1;
+	while (!this_section_info$rock_no[sr] %in% hot_rocks)	sr <- sr+1;
+	lo_rocks <- hi_rocks <- c();
+	if (sr>1)				lo_rocks <- (2:sr)-1;
+	if (sr<srocks)	hi_rocks <- (sr+1):srocks;
+	srock_no <- this_section_info$rock_no[sr];
+	if (srock_no %in% hot_rocks)	{
+		hr <- hr+1;
+		rock_dates <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% srock_no,],radiometric_dates[radiometric_dates$formation_no %in% srock_no,]));
+#		if (nrow(rock_dates)==0)	which(radiometric_dates==srock_no,arr.ind=T)
+		colnames(rock_dates) <- gsub("_event_bed","",colnames(rock_dates));
+		rock_dates <- rock_dates[rock_dates$ma_ub<this_section_info$onset_lb[sr] & rock_dates$ma_lb>this_section_info$end_ub[sr],];
+		rock_dates$rock_no_sr <- srock_no;
+#		orig_date_span <- data.frame(fa_lb=max(this_section_info$onset_lb[sr]),fa_ub=max(this_section_info$onset_ub[sr]),la_lb=min(this_section_info$end_lb[sr]),la_ub=min(this_section_info$end_ub[sr]));
+		orig_date_span <- this_section_info[sr,];
+		rock_date_span <- data.frame(fa_lb=max(rock_dates$ma_lb),fa_ub=max(rock_dates$ma_ub),la_lb=min(rock_dates$ma_lb),la_ub=min(rock_dates$ma_ub));
+		if (rock_date_span$fa_ub<orig_date_span$onset_lb)
+			rock_date_span$fa_lb <- orig_date_span$onset_lb; # move oldest possible age only if some youngest possible date is older than the rock currently is
+		rock_date_span$la_lb <- min(rock_date_span$la_lb,this_section_info$end_lb[sr]);
+		rock_date_span$fa_ub <- max(rock_date_span$fa_ub,this_section_info$onset_ub[sr]);
+		if (rock_date_span$la_lb>orig_date_span$end_ub)
+			rock_date_span$la_ub <- orig_date_span$end_ub; # move youngest possible age only if some oldest possible date is younger than the rock currently is
+		if (nrow(rock_dates)>0)	{
+#			if (sr>1)	this_section_info$onset_ub[sr] <- min(c(this_section_info$end_lb[sr-1],max(rock_dates$ma_ub)));
+#			if (this_section_info$end_ub[sr] > this_section_info$onset_ub[sr])	this_section_info$end_ub[sr] <- this_section_info$onset_ub[sr];
+
+#			if (this_section_info$onset_lb[sr] < this_section_info$end_lb[sr])	this_section_info$onset_lb[sr] <- this_section_info$end_lb[sr];
+
+			if (sr < srocks && this_section_info$rock_no[sr+1] %in% hot_rocks)	{
+				hrock_no <- this_section_info$rock_no[sr+1];
+				higher_hot_rocks <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% hrock_no,],radiometric_dates[radiometric_dates$formation_no %in% hrock_no,]));
+				colnames(higher_hot_rocks) <- gsub("_event_bed","",colnames(higher_hot_rocks));
+				higher_hot_rocks$rock_no_sr <- hrock_no;
+				higher_date_span <- data.frame(fa_lb=max(higher_hot_rocks$ma_lb),fa_ub=max(higher_hot_rocks$ma_ub),la_lb=min(higher_hot_rocks$ma_lb),la_ub=min(higher_hot_rocks$ma_ub));
+				overlapping_dates <- unique(rbind(rock_dates[rock_dates$ma_lb<=higher_date_span$fa_lb & rock_dates$ma_ub>=higher_date_span$la_ub,],
+																					higher_hot_rocks[higher_hot_rocks$ma_lb<=rock_date_span$fa_lb & higher_hot_rocks$ma_ub>=rock_date_span$la_ub,]));
+				if (nrow(overlapping_dates)>0)	{
+					if (srock_no %in% overlapping_dates$rock_no_sr && hrock_no %in% overlapping_dates$rock_no_sr)	{
+						this_section_info$end_lb[sr] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																								max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% hrock_no]));
+#						this_section_info$onset_ub[sr+1] <- this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+						this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																								max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+						this_section_info$onset_lb[sr+1] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																										max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% hrock_no]))
+						this_section_info$onset_ub[sr+1] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																										max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]))
+						} else	{
+						this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+						}
+					} else	{
+					this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+					}
+				} else	{
+				this_section_info$end_lb[sr] <- rock_date_span$la_lb;
+				}
+
+			if (sr >1 && this_section_info$rock_no[sr-1] %in% hot_rocks)	{
+				rock_dates <- rock_dates[order(-rock_dates$ma_lb,rock_dates$ma_ub),];
+				lrock_no <- this_section_info$rock_no[sr-1];
+				lower_hot_rocks <- unique(rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% lrock_no,],radiometric_dates[radiometric_dates$formation_no %in% lrock_no,]));
+				colnames(lower_hot_rocks) <- gsub("_event_bed","",colnames(lower_hot_rocks));
+				lower_hot_rocks$rock_no_sr <- lrock_no;
+				lower_hot_rocks <- lower_hot_rocks[order(-lower_hot_rocks$ma_ub,lower_hot_rocks$ma_lb),];
+				lower_date_span <- data.frame(fa_lb=max(lower_hot_rocks$ma_lb),fa_ub=max(lower_hot_rocks$ma_ub),la_lb=min(lower_hot_rocks$ma_lb),la_ub=min(lower_hot_rocks$ma_ub));
+				overlapping_dates <- unique(rbind(rock_dates[rock_dates$ma_lb>=lower_date_span$la_lb,],
+																					lower_hot_rocks[lower_hot_rocks$ma_ub<=rock_date_span$fa_lb,]));
+				if (nrow(overlapping_dates)>0)	{
+					if (srock_no %in% overlapping_dates$rock_no_sr && lrock_no %in% overlapping_dates$rock_no_sr)	{
+						this_section_info$onset_lb[sr] <- max(max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+																									min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% lrock_no]));
+						this_section_info$onset_ub[sr] <- max(max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+																									min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% lrock_no]));
+#						this_section_info$end_lb[sr] <- max(min(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% srock_no]),
+#																								max(overlapping_dates$ma_lb[overlapping_dates$rock_no_sr %in% lrock_no]));
+#						this_section_info$onset_ub[sr+1] <- this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% hrock_no]));
+#						this_section_info$end_ub[sr] <- max(min(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% srock_no]),
+#																								max(overlapping_dates$ma_ub[overlapping_dates$rock_no_sr %in% lrock_no]));
+						} else	{
+						this_section_info$onset_ub[sr] <- rock_date_span$fa_ub;
+						}
+					} else	{
+					this_section_info$onset_ub[sr] <- rock_date_span$fa_ub;
+					}
+				} else	{
+				this_section_info$onset_ub[sr] <- rock_date_span$fa_ub;
+				}
+
+			changed_data_span <- as.data.frame(orig_date_span!=this_section_info[sr,]);
+			lo_wallflower <- lo_rocks[this_section_info$rock_no[lo_rocks] %in% wallflowers];
+			#this_section_info$end_ub[lo_wallflower][this_section_info$end_ub[lo_wallflower]<this_section_info$end_ub[sr]] <- this_section_info$end_ub[sr];
+			if (changed_data_span$onset_ub)	{
+				this_section_info$onset_ub[lo_wallflower][this_section_info$onset_ub[lo_wallflower]<this_section_info$onset_ub[sr]] <- this_section_info$onset_ub[sr];
+				}
+			hi_wallflower <- hi_rocks[this_section_info$rock_no[hi_rocks] %in% wallflowers];
+			this_section_info$onset_lb[hi_wallflower][this_section_info$onset_lb[hi_wallflower]>this_section_info$onset_lb[sr]] <- this_section_info$onset_lb[sr];
+			this_section_info$end_lb[hi_wallflower][this_section_info$end_lb[hi_wallflower]>this_section_info$end_lb[sr]] <- this_section_info$end_lb[sr];
+			}
+#		print(this_section_info);
+		}
+	}
+this_section_info <- constrain_rock_ages_in_section_basic(this_section_info);
+return(this_section_info);
+}
+
+# get the age of other rocks in the same section as this rock, within the possible span of that rock
+accersi_age_bounds_on_other_rocks_in_section_with_rock_no <- function(rock_no,section,rock_database,radiometric_dates,rock_to_zone_database,rock_to_isotope_excursion,precision=0.1,dbug=FALSE)	{
+rock_lb <- rock_database$ma_lb[rock_database$rock_no==rock_no];
+rock_ub <- rock_database$ma_ub[rock_database$rock_no==rock_no];
+rock_orders <- accersi_rock_order_in_section(rock_no=rock_no,section);
+crocks <- length(rock_orders);
+keepers <- this_rock <- match(rock_no,rock_orders);
+#section[match(rock_orders,section$rock_no_up),]
+tr <- this_rock-1;
+if (tr>0) {
+	while (tr>0 && rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+		keepers <- c(tr,keepers);
+		tr <- tr-1;
+		if (tr==0)	break;
+		}
+	}
+tr <- this_rock+1;
+if (tr<crocks)	{
+	while (tr<=crocks && rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+		keepers <- c(keepers,tr);
+		tr <- tr+1;
+		if (tr>crocks)	break;
+		}
+#	if (tr>crocks)	break;
+	}
+rock_orders <- rock_orders[keepers];
+#section_dates <- radiometric_dates[match(hot_rocks,radiometric_dates$rock_no_sr),];
+zone_rocks <- rock_orders[rock_orders %in% rock_to_zone_database$rock_no_sr];
+hot_rocks <- rock_orders[rock_orders %in% radiometric_dates$rock_no_sr];
+isox_rocks <- rock_orders[rock_orders %in% rock_to_isotope_excursion$rock_no_sr];
+zrocks <- length(zone_rocks);
+hrocks <- length(hot_rocks);
+irocks <- length(isox_rocks);
+section_info_zone <- section_info_isox <- section_info_radi <- section_info <- data.frame(rock_no=rock_orders,onset_lb=rock_database$ma_lb[match(rock_orders,rock_database$rock_no)],onset_ub=rock_database$ma_ub[match(rock_orders,rock_database$rock_no)],end_lb=rock_database$ma_lb[match(rock_orders,rock_database$rock_no)],end_ub=rock_database$ma_ub[match(rock_orders,rock_database$rock_no)]);
+srocks <- nrow(section_info);
+if (hrocks>0)	section_info_radi <- constrain_rock_ages_in_section_with_dated_beds(this_section_info=section_info,radiometric_dates);
+#section_info_isox <- constrain_rock_ages_in_section_with_zone_data(this_section_info=section_info_radi,rock_zone_info=rock_to_isotope_excursion);
+if (irocks>0)	section_info_isox <- constrain_rock_ages_in_section_with_zones(this_section_info=section_info,rock_zone_info=rock_to_isotope_excursion);
+if (zrocks>0)	section_info_zone <- constrain_rock_ages_in_section_with_zones(this_section_info=section_info,rock_zone_info=rock_to_zone_database);
+#section_info_zone <- constrain_rock_ages_in_section_with_zone_data(this_section_info=section_info_isox,rock_zone_info=rock_to_zone_database);
+
+if ((zrocks+hrocks+irocks)>0)	{
+	section_info_orig <- section_info;
+	for (sr in 1:nrow(section_info))	{
+		poss_onsets_ub <- c(section_info_isox$onset_ub[sr],section_info_zone$onset_ub[sr],section_info_radi$onset_ub[sr]);
+		poss_onsets_ub <- poss_onsets_ub[!poss_onsets_ub %in% section_info_orig$onset_ub[sr]];
+		if (length(poss_onsets_ub)==0)	poss_onsets_ub <- section_info_orig$onset_ub[sr];
+		section_info$onset_ub[sr] <- max(poss_onsets_ub);
+
+		poss_ends_lb <- c(section_info_isox$end_lb[sr],section_info_zone$end_lb[sr],section_info_radi$end_lb[sr]);
+		poss_ends_lb <- poss_ends_lb[poss_ends_lb!=section_info_orig$end_lb[sr]];
+		if (length(poss_ends_lb)==0)	poss_ends_lb <- section_info_orig$end_lb[sr];
+		section_info$end_lb[sr] <- min(poss_ends_lb);
+
+		poss_onsets_lb <- c(section_info_isox$onset_lb[sr],section_info_zone$onset_lb[sr],section_info_radi$onset_lb[sr]);
+		poss_onsets_lb <- poss_onsets_lb[poss_onsets_lb != section_info_orig$onset_lb[sr]];
+		poss_onsets_lb <- poss_onsets_lb[poss_onsets_lb > section_info$onset_ub[sr]];
+		if (length(poss_onsets_lb)==0)	poss_onsets_lb <- section_info_orig$onset_lb[sr];
+		section_info$onset_lb[sr] <- min(poss_onsets_lb);
+
+		poss_ends_ub <- c(section_info_isox$end_ub[sr],section_info_zone$end_ub[sr],section_info_radi$end_ub[sr]);
+		poss_ends_ub <- poss_ends_ub[poss_ends_ub!=section_info_orig$end_ub[sr]];
+		poss_ends_ub <- poss_ends_ub[poss_ends_ub<section_info$end_lb[sr]];
+		if (length(poss_ends_ub)==0)	poss_ends_ub <- section_info_orig$end_ub[sr];
+		section_info$end_ub[sr] <- max(poss_ends_ub);
+		}
+	}
+
+sr <- 0;
+while (sr < (srocks-1))	{
+	sr <- sr+1;
+	if (section_info$end_lb[sr]<section_info$onset_lb[sr+1])	{
+		poss_redates <- c(section_info_orig$end_lb[sr],section_info$onset_lb[sr+1]);
+		poss_redates <- poss_redates[poss_redates>=section_info$onset_lb[sr+1]];
+		section_info$end_lb[sr] <- min(poss_redates);
+		}
+	if (section_info$end_ub[sr]<section_info$onset_ub[sr+1])	{
+		poss_redates <- c(section_info_orig$end_ub[sr],section_info$onset_ub[sr+1]);
+		poss_redates <- poss_redates[poss_redates>=section_info$onset_ub[sr+1]];
+		section_info$end_ub[sr] <- min(poss_redates);
+		}
+	}
+
+section_info <- constrain_rock_ages_in_section_basic(section_info);
+return(section_info);
+}
+
+rock_start_and_end_probabilities <- function(rock_no,section_info,precision=0.1)	{
+# modified 2024-11-24 to better accommodate numerous possible rock onsets and/or ends within some span of time
+trr <- match(rock_no,section_info$rock_no);
+rock_ons_lb <- ceiling(20*section_info$onset_lb[trr])/20;  # make sure that ages end in x.y5
+rock_ons_ub <- section_info$onset_ub[trr];
+rock_end_lb <- section_info$end_lb[trr];
+rock_end_ub <- floor(20*section_info$end_ub[trr])/20;
+#if (round(rock_ons_lb %% 0.1,1)==0)	rock_ons_lb <- rock_ons_lb-0.05;
+#if (round(rock_end_ub %% 0.1,1)==0.05)	rock_end_ub <- rock_end_ub-0.05;
+if (round(rock_ons_lb,1)==round(rock_ons_lb,2))	rock_ons_lb <- rock_ons_lb+0.05;
+if (round(rock_end_ub,1)==round(rock_end_ub,2))	rock_end_ub <- rock_end_ub-0.05;
+
+time_span_all <- seq(ceiling(rock_ons_lb*20)/20,floor(rock_end_ub*20)/20,by=-abs(precision))
+#time_span_all <- round(seq(rock_ons_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_all_stnd <- abs(time_span_all-rock_ons_lb)/abs(rock_end_ub-rock_ons_lb);
+tsall <- length(time_span_all_stnd);
+fuzzy_boundaries <- data.frame(ma=time_span_all,L_ons=rep(0,length(time_span_all)),L_end=rep(0,length(time_span_all)));
+
+rocks_below <- section_info[section_info$onset_lb>rock_ons_ub,];
+rocks_below <- rocks_below[rocks_below$onset_ub<rocks_below$onset_lb[trr],];
+time_span_below <- round(seq(rock_ons_lb-(abs(precision)/2),rock_ons_ub,by=-abs(precision)),2);
+time_span_below_stnd <- abs(time_span_below-rock_ons_lb)/abs(rock_ons_lb-rock_ons_ub);
+tsb <- length(time_span_below);
+poss_ons <- sort(unique(c(rocks_below$onset_lb,rocks_below$onset_ub)),decreasing = TRUE);
+poss_ons <- poss_ons[poss_ons>=rock_ons_ub];
+
+rocks_above <- section_info[section_info$end_ub<rock_end_lb,]
+rocks_above <- rocks_above[rocks_above$end_lb>rock_end_ub,];
+time_span_above <- round(seq(rock_end_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_above_stnd <- abs(time_span_above-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+tsa <- length(time_span_above);
+poss_ends <- sort(unique(c(rocks_above$end_lb,rocks_above$end_ub)),decreasing = TRUE);
+poss_ends <- poss_ends[poss_ends<=rock_end_lb];
+
+if (rock_ons_ub>=rock_end_lb)	{
+	N <- nrow(rocks_below);
+	n <- match(rock_no,rocks_below$rock_no[nrow(rocks_below):1]);
+	# add something here to allow for basal rocks to start before this time span #
+	fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,N,n)/sum(dbeta(time_span_below_stnd,N,n));
+	fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+
+	N <- nrow(rocks_above);
+	n <- match(rock_no,rocks_above$rock_no);
+	# add something here to allow for upper rocks to end after this time span #
+#	dbeta(time_span_above_stnd,n,N)
+	fuzzy_boundaries$L_end[(1+tsall-tsa):tsall] <- dbeta(time_span_above_stnd,n,N)/sum(dbeta(time_span_above_stnd,n,N));
+	fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+	fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+#	plot(-fuzzy_boundaries$ma,fuzzy_boundaries$L_pres);
+	} else	{
+	# case where there relevant rock does not "range through" some span
+	if (sum(poss_ons>rock_ons_lb)>0)	{
+		# case where older rock might start before this rock *could possibly have* started
+		#  i.e., it's definitely older, but it might/might not start in the same span.
+		# go through each rock that could start before (or during) this span and get
+		#		the probability that it that it started during this span (= 1- prob. it started before).
+		older_rocks <- rocks_below[rocks_below$onset_lb>rock_ons_lb,];
+	#	dummy <- rocks_below[1:(1+nrow(older_rocks)),];
+	#	dummy$onset_lb <- -dummy$onset_lb; dummy$onset_ub <- -dummy$onset_ub; dummy$end_lb <- -dummy$end_lb; dummy$end_ub <- -dummy$end_ub;
+	#	mxy <- ceiling(max(dummy$onset_ub)/5)*5; mny <- floor(min(dummy$onset_lb)/5)*5;
+	#	specify_basic_plot(mxx=1+nrow(dummy),mnx=0,mxy=mxy,mny=mny,main="",abcissa="Rock",ordinate="Ma",font=franky);
+	#	specified_axis(axe=2,max_val=mxy,min_val=mny,maj_break=5,med_break=1,min_break=0.5,orient=2,font=franky);
+	#	for (i in 1:nrow(dummy))	rect(i-(1/3),dummy$onset_lb[i],i+(1/3),dummy$onset_ub[i],col="gray75");
+		# setup loop to go through the rocks that have possibly already started
+		# for (blah did blah stuff below...) ???
+		Nb <- nrow(older_rocks);
+		orock_lb <- max(older_rocks$onset_lb);
+		prob_this_rock_starts_first <- prob_onset_during <- vector(length=Nb+1);
+		# go through all possible rocks that *could* be the first one to start in the span that rock_no starts
+		for (i in 1:Nb)	{
+			possible_starting_range <- seq(older_rocks$onset_lb[i]-abs(precision/2),older_rocks$onset_ub[i],by=-abs(precision));
+			possible_starting_range_stnd <- abs(possible_starting_range-older_rocks$onset_lb[i])/abs(older_rocks$onset_lb[i]-older_rocks$onset_ub[i]);
+			pstarts <- dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb))
+			prob_onset_during[i] <- 1-sum(pstarts); #prob_onset_during[i] <- 1-sum(dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb)));
+			if (i==1)	{
+				prob_this_rock_starts_first[i] <- 1-sum(pstarts[possible_starting_range>rock_ons_lb]);
+				} else	{
+				prob_this_rock_starts_first[i] <- (1-prob_onset_during[i-1])*prob_onset_during[i]
+				}
+			}
+		ttl_comps <- Nb+1;
+#		prob_onset_during[ttl_comps] <- 1-prob_onset_during[Nb];
+#		prob_onset_during[ttl_comps] <- 1-sum(prob_onset_during);
+		prob_onset_during[ttl_comps] <- 1.0;	# this rock definitely starts in that span;
+		prob_this_rock_starts_first[ttl_comps] <- 1-sum(prob_this_rock_starts_first);
+		names(prob_this_rock_starts_first) <- section_info$rock_no[1:ttl_comps];
+		trb <- match(rock_no,rocks_below$rock_no);
+		fuzzy_boundaries$L_ons[1:tsb] <- 0;
+		for (tc in 1:ttl_comps)	{
+			rocks_below_x <- rocks_below[tc:nrow(rocks_below),];
+			N <- nrow(rocks_below_x);
+			n <- match(rock_no,rocks_below_x$rock_no);  # relevant rock is always
+#			n <- 1+N-match(rock_no,rocks_below_x$rock_no);
+#			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_onset_during[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_this_rock_starts_first[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			}
+		fuzzy_boundaries$L_ons[fuzzy_boundaries$L_ons<5E-16] <- 0;
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+#		time_span_older <- seq(orock_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision))
+#		time_span_older_stnd <- abs(time_span_older-orock_lb)/abs(rock_ons_ub-orock_lb);
+#		P_rocks_already_there <- sum(dbeta(time_span_older_stnd[time_span_older>rock_ons_lb],Nb,Nb)/sum(dbeta(time_span_older_stnd,Nb,Nb)));
+		} else	{
+		N <- nrow(rocks_below);
+		n <- match(rock_no,rocks_below$rock_no);
+#		n <- match(rock_no,rocks_below$rock_no[N:1]);
+#		time_span_below <- seq(rock_ons_lb-abs(precision/2),rock_ons_ub,by=-abs(precision))
+#		tsb <- length(time_span_below);
+#		time_span_below_stnd <- abs(time_span_below-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+		fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+		}
+	# case where some rocks might end with this rocks range, but might end before
+	if (sum(rocks_above$end_lb>rock_end_lb)>0)	{
+		elders <- sum(rocks_above$end_lb>rock_end_lb);
+		elder_rocks <- rocks_above[rocks_above$end_lb>rock_end_lb,];
+		Na <- nrow(elder_rocks);
+		prob_this_rock_ends_first <- prob_ending_during <- vector(length=Na+1);
+		for (i in 1:Na)	{
+			possible_end_range <- seq(elder_rocks$end_lb[i]-abs(precision/2),elder_rocks$end_ub[i],by=-abs(precision));
+			possible_end_range_std <- abs(possible_end_range-elder_rocks$end_ub[i])/abs(elder_rocks$end_lb[i]-elder_rocks$end_ub[i]);
+			pends <- dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i));
+			prob_ending_during[i] <- 1-sum(pends); #prob_ending_during[i] <- 1-sum(dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i)));
+			if (i==1)	{
+				prob_this_rock_ends_first[i] <- 1-sum(pends[possible_end_range>rock_end_lb]);
+				} else	{
+				prob_this_rock_ends_first[i] <- (1-prob_ending_during[i-1])*prob_ending_during[i];
+				}
+			}
+		ttl_comps <- Na+1;
+		prob_this_rock_ends_first[ttl_comps] <- 1-sum(prob_this_rock_ends_first); #prob_ending_during[ttl_comps] <- c(prob_ending_during,1-prob_ending_during[Na]);
+		prob_ending_during[ttl_comps] <- 1.0; #prob_ending_during[ttl_comps] <- c(prob_ending_during,1-prob_ending_during[Na]);
+		names(prob_this_rock_ends_first) <- section_info$rock_no[c(match(elder_rocks$rock_no,section_info$rock_no),max(match(elder_rocks$rock_no,section_info$rock_no))+1)];
+
+		fuzzy_boundaries$L_end <- 0;
+		for (tc in 1:ttl_comps)	{
+			rocks_above_x <- rocks_above[tc:nrow(rocks_above),];
+			N <- nrow(rocks_above_x);
+			n <- match(rock_no,rocks_above_x$rock_no);
+#			n <- 1+N-match(rock_no,rocks_above_x$rock_no);
+#			fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall] <- fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall]+prob_ending_during[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			this_span <- (max(1,(1+tsall-tsa)):tsall);
+#			fuzzy_boundaries$ma
+			fuzzy_boundaries$L_end[this_span] <- fuzzy_boundaries$L_end[this_span]+prob_this_rock_ends_first[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			}
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$P_end[fuzzy_boundaries$P_end<5E-16] <- 0;
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		fuzzy_boundaries$L_pres[fuzzy_boundaries$L_pres<5E-16] <- 0;
+		} else	{ # case where all rocks must end in the same span
+		N <- nrow(rocks_above);
+		n <- 1+N-match(rock_no,rocks_above$rock_no);
+		fuzzy_boundaries$L_end[(tsall-tsa+1):tsall] <- dbeta(time_span_above_stnd,N,1)/sum(dbeta(time_span_above_stnd,N,n));
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		}
+#sum(fuzzy_boundaries$L_ons)
+#sum(fuzzy_boundaries$L_end)
+	}
+
+return(fuzzy_boundaries);
+}
+
+rock_start_and_end_probabilities_huh <- function(rock_no,section_info,precision=0.1)	{
+# modified 2024-11-24 to better accommodate numerous possible rock onsets and/or ends within some span of time
+trr <- match(rock_no,section_info$rock_no);
+rock_ons_lb <- ceiling(20*section_info$onset_lb[trr])/20;  # make sure that ages end in x.y5
+rock_ons_ub <- section_info$onset_ub[trr];
+rock_end_lb <- section_info$end_lb[trr];
+rock_end_ub <- floor(20*section_info$end_ub[trr])/20;
+
+time_span_all <- round(seq(rock_ons_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_all_stnd <- abs(time_span_all-rock_ons_lb)/abs(rock_end_ub-rock_ons_lb);
+tsall <- length(time_span_all_stnd);
+fuzzy_boundaries <- data.frame(ma=time_span_all,L_ons=rep(0,length(time_span_all)),L_end=rep(0,length(time_span_all)));
+
+rocks_below <- section_info[section_info$onset_lb>rock_ons_ub,];
+rocks_below <- rocks_below[rocks_below$onset_ub<rocks_below$onset_lb[trr],];
+time_span_below <- round(seq(rock_ons_lb-(abs(precision)/2),rock_ons_ub,by=-abs(precision)),2);
+time_span_below_stnd <- abs(time_span_below-rock_ons_lb)/abs(rock_ons_lb-rock_ons_ub);
+tsb <- length(time_span_below);
+poss_ons <- sort(unique(c(rocks_below$onset_lb,rocks_below$onset_ub)),decreasing = TRUE);
+poss_ons <- poss_ons[poss_ons>=rock_ons_ub];
+
+rocks_above <- section_info[section_info$end_ub<rock_end_lb,]
+rocks_above <- rocks_above[rocks_above$end_lb>rock_end_ub,];
+time_span_above <- round(seq(rock_end_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_above_stnd <- abs(time_span_above-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+tsa <- length(time_span_above);
+poss_ends <- sort(unique(c(rocks_above$end_lb,rocks_above$end_ub)),decreasing = TRUE);
+poss_ends <- poss_ends[poss_ends<=rock_end_lb];
+
+if (rock_ons_ub>=rock_end_lb)	{
+	N <- nrow(rocks_below);
+	n <- match(rock_no,rocks_below$rock_no[nrow(rocks_below):1]);
+	# add something here to allow for basal rocks to start before this time span #
+	fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,N,n)/sum(dbeta(time_span_below_stnd,N,n));
+	fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+
+	N <- nrow(rocks_above);
+	n <- match(rock_no,rocks_above$rock_no);
+	# add something here to allow for upper rocks to end after this time span #
+#	dbeta(time_span_above_stnd,n,N)
+	fuzzy_boundaries$L_end[(1+tsall-tsa):tsall] <- dbeta(time_span_above_stnd,n,N)/sum(dbeta(time_span_above_stnd,n,N));
+	fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+	fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+#	plot(-fuzzy_boundaries$ma,fuzzy_boundaries$L_pres);
+	} else	{
+	# case where there relevant rock does not "range through" some span
+	if (sum(poss_ons>rock_ons_lb)>0)	{
+		# case where older rock might start before this rock *could possibly have* started
+		#  i.e., it's definitely older, but it might/might not start in the same span.
+		# go through each rock that could start before (or during) this span and get
+		#		the probability that it that it started during this span (= 1- prob. it started before).
+		older_rocks <- rocks_below[rocks_below$onset_lb>rock_ons_lb,];
+	#	dummy <- rocks_below[1:(1+nrow(older_rocks)),];
+	#	dummy$onset_lb <- -dummy$onset_lb; dummy$onset_ub <- -dummy$onset_ub; dummy$end_lb <- -dummy$end_lb; dummy$end_ub <- -dummy$end_ub;
+	#	mxy <- ceiling(max(dummy$onset_ub)/5)*5; mny <- floor(min(dummy$onset_lb)/5)*5;
+	#	specify_basic_plot(mxx=1+nrow(dummy),mnx=0,mxy=mxy,mny=mny,main="",abcissa="Rock",ordinate="Ma",font=franky);
+	#	specified_axis(axe=2,max_val=mxy,min_val=mny,maj_break=5,med_break=1,min_break=0.5,orient=2,font=franky);
+	#	for (i in 1:nrow(dummy))	rect(i-(1/3),dummy$onset_lb[i],i+(1/3),dummy$onset_ub[i],col="gray75");
+		# setup loop to go through the rocks that have possibly already started
+		# for (blah did blah stuff below...) ???
+		Nb <- nrow(older_rocks);
+		orock_lb <- max(older_rocks$onset_lb);
+		prob_this_rock_starts_first <- prob_onset_during <- vector(length=Nb+1);
+		# go through all possible rocks that *could* be the first one to start in the span that rock_no starts
+		for (i in 1:Nb)	{
+			possible_starting_range <- seq(older_rocks$onset_lb[i]-abs(precision/2),older_rocks$onset_ub[i],by=-abs(precision));
+			possible_starting_range_stnd <- abs(possible_starting_range-older_rocks$onset_lb[i])/abs(older_rocks$onset_lb[i]-older_rocks$onset_ub[i]);
+			pstarts <- dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb))
+			prob_onset_during[i] <- 1-sum(pstarts); #prob_onset_during[i] <- 1-sum(dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb)));
+			if (i==1)	{
+				prob_this_rock_starts_first[i] <- 1-sum(pstarts[possible_starting_range>rock_ons_lb]);
+				} else	{
+				prob_this_rock_starts_first[i] <- (1-prob_onset_during[i-1])*prob_onset_during[i]
+				}
+			}
+		ttl_comps <- Nb+1;
+#		prob_onset_during[ttl_comps] <- 1-prob_onset_during[Nb];
+#		prob_onset_during[ttl_comps] <- 1-sum(prob_onset_during);
+		prob_onset_during[ttl_comps] <- 1.0;	# this rock definitely starts in that span;
+		prob_this_rock_starts_first[ttl_comps] <- 1-sum(prob_this_rock_starts_first);
+		names(prob_this_rock_starts_first) <- section_info$rock_no[1:ttl_comps];
+		trb <- match(rock_no,rocks_below$rock_no);
+		fuzzy_boundaries$L_ons[1:tsb] <- 0;
+		for (tc in 1:ttl_comps)	{
+			rocks_below_x <- rocks_below[tc:nrow(rocks_below),];
+			N <- nrow(rocks_below_x);
+			n <- match(rock_no,rocks_below_x$rock_no);  # relevant rock is always
+#			n <- 1+N-match(rock_no,rocks_below_x$rock_no);
+#			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_onset_during[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_this_rock_starts_first[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			}
+		fuzzy_boundaries$L_ons[fuzzy_boundaries$L_ons<5E-16] <- 0;
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+#		time_span_older <- seq(orock_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision))
+#		time_span_older_stnd <- abs(time_span_older-orock_lb)/abs(rock_ons_ub-orock_lb);
+#		P_rocks_already_there <- sum(dbeta(time_span_older_stnd[time_span_older>rock_ons_lb],Nb,Nb)/sum(dbeta(time_span_older_stnd,Nb,Nb)));
+		} else	{
+		N <- nrow(rocks_below);
+		n <- match(rock_no,rocks_below$rock_no);
+#		n <- match(rock_no,rocks_below$rock_no[N:1]);
+#		time_span_below <- seq(rock_ons_lb-abs(precision/2),rock_ons_ub,by=-abs(precision))
+#		tsb <- length(time_span_below);
+#		time_span_below_stnd <- abs(time_span_below-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+		fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+		}
+	# case where some rocks might end with this rocks range, but might end before
+	if (sum(rocks_above$end_lb>rock_end_lb)>0)	{
+		elders <- sum(rocks_above$end_lb>rock_end_lb);
+		elder_rocks <- rocks_above[rocks_above$end_lb>rock_end_lb,];
+		Na <- nrow(elder_rocks);
+		prob_this_rock_ends_first <- prob_ending_during <- vector(length=Na+1);
+		for (i in 1:Na)	{
+			possible_end_range <- seq(elder_rocks$end_lb[i]-abs(precision/2),elder_rocks$end_ub[i],by=-abs(precision));
+			possible_end_range_std <- abs(possible_end_range-elder_rocks$end_ub[i])/abs(elder_rocks$end_lb[i]-elder_rocks$end_ub[i]);
+			pends <- dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i));
+			prob_ending_during[i] <- 1-sum(pends); #prob_ending_during[i] <- 1-sum(dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i)));
+			if (i==1)	{
+				prob_this_rock_ends_first[i] <- 1-sum(pends[possible_end_range>rock_end_lb]);
+				} else	{
+				prob_this_rock_ends_first[i] <- (1-prob_ending_during[i-1])*prob_ending_during[i];
+				}
+			}
+		ttl_comps <- Na+1;
+		prob_this_rock_ends_first[ttl_comps] <- 1-sum(prob_this_rock_ends_first); #prob_ending_during[ttl_comps] <- c(prob_ending_during,1-prob_ending_during[Na]);
+		prob_ending_during[ttl_comps] <- 1.0; #prob_ending_during[ttl_comps] <- c(prob_ending_during,1-prob_ending_during[Na]);
+		names(prob_this_rock_ends_first) <- section_info$rock_no[c(match(elder_rocks$rock_no,section_info$rock_no),max(match(elder_rocks$rock_no,section_info$rock_no))+1)];
+
+		fuzzy_boundaries$L_end <- 0;
+		for (tc in 1:ttl_comps)	{
+			rocks_above_x <- rocks_above[tc:nrow(rocks_above),];
+			N <- nrow(rocks_above_x);
+			n <- match(rock_no,rocks_above_x$rock_no);
+#			n <- 1+N-match(rock_no,rocks_above_x$rock_no);
+#			fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall] <- fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall]+prob_ending_during[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			this_span <- (max(1,(1+tsall-tsa)):tsall);
+#			fuzzy_boundaries$ma
+			fuzzy_boundaries$L_end[this_span] <- fuzzy_boundaries$L_end[this_span]+prob_this_rock_ends_first[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			}
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$P_end[fuzzy_boundaries$P_end<5E-16] <- 0;
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		fuzzy_boundaries$L_pres[fuzzy_boundaries$L_pres<5E-16] <- 0;
+		} else	{ # case where all rocks must end in the same span
+		N <- nrow(rocks_above);
+		n <- 1+N-match(rock_no,rocks_above$rock_no);
+		fuzzy_boundaries$L_end[(tsall-tsa+1):tsall] <- dbeta(time_span_above_stnd,N,1)/sum(dbeta(time_span_above_stnd,N,n));
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		}
+#sum(fuzzy_boundaries$L_ons)
+#sum(fuzzy_boundaries$L_end)
+	}
+
+return(fuzzy_boundaries);
+}
+
+rock_start_and_end_probabilities_broke <- function(rock_no,section_info,precision=0.1)	{
+trr <- match(rock_no,section_info$rock_no);
+rock_ons_lb <- ceiling(section_info$onset_lb[trr]/(precision/2))*(precision/2);
+rock_ons_ub <- ceiling(section_info$onset_ub[trr]/(precision/2))*(precision/2);
+rock_end_ub <- floor(section_info$end_ub[trr]/(precision/2))*(precision/2);
+rock_end_lb <- floor(section_info$end_lb[trr]/(precision/2))*(precision/2);
+
+time_span_all <- round(seq(rock_ons_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_all_stnd <- abs(time_span_all-rock_ons_lb)/abs(rock_end_ub-rock_ons_lb);
+tsall <- length(time_span_all_stnd);
+fuzzy_boundaries <- data.frame(ma=time_span_all,L_ons=rep(0,length(time_span_all)),L_end=rep(0,length(time_span_all)));
+
+rocks_below <- section_info[section_info$onset_lb>rock_ons_ub,];
+rocks_below <- rocks_below[rocks_below$onset_ub<rocks_below$onset_lb[trr],];
+time_span_below <- round(seq(rock_ons_lb-(abs(precision)/2),rock_ons_ub,by=-abs(precision)),2);
+time_span_below_stnd <- abs(time_span_below-rock_ons_lb)/abs(rock_ons_lb-rock_ons_ub);
+tsb <- length(time_span_below);
+poss_ons <- sort(unique(c(rocks_below$onset_lb,rocks_below$onset_ub)),decreasing = TRUE);
+poss_ons <- poss_ons[poss_ons>=rock_ons_ub];
+
+rocks_above <- section_info[section_info$end_ub<rock_end_lb,]
+rocks_above <- rocks_above[rocks_above$end_lb>rock_end_ub,];
+time_span_above <- round(seq(rock_end_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_above_stnd <- abs(time_span_above-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+tsa <- length(time_span_above);
+poss_ends <- sort(unique(c(rocks_above$end_lb,rocks_above$end_ub)),decreasing = TRUE);
+poss_ends <- poss_ends[poss_ends<=rock_end_lb];
+
+if (rock_ons_ub>=rock_end_lb)	{
+	N <- nrow(rocks_below);
+	n <- match(rock_no,rocks_below$rock_no[nrow(rocks_below):1]);
+	# add something here to allow for basal rocks to start before this time span #
+	fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,N,n)/sum(dbeta(time_span_below_stnd,N,n));
+	fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+
+	N <- nrow(rocks_above);
+	n <- match(rock_no,rocks_above$rock_no);
+	# add something here to allow for upper rocks to end after this time span #
+#	dbeta(time_span_above_stnd,n,N)
+	fuzzy_boundaries$L_end[(1+tsall-tsa):tsall] <- dbeta(time_span_above_stnd,n,N)/sum(dbeta(time_span_above_stnd,n,N));
+	fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+	fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+#	plot(-fuzzy_boundaries$ma,fuzzy_boundaries$L_pres);
+	} else	{
+	# case where older rock might end before relevant interval
+	if (sum(poss_ons>rock_ons_lb)>0)	{
+		older_rocks <- rocks_below[rocks_below$onset_lb>rock_ons_lb,];
+		# setup loop to go through all possibly already started rocks
+		# for (blah did blah stuff below...)
+		Nb <- nrow(older_rocks);
+		orock_lb <- max(older_rocks$onset_lb);
+		prob_onset_during <- vector(length=Nb);
+		for (i in 1:Nb)	{
+			possible_starting_range <- seq(older_rocks$onset_lb[i]-abs(precision/2),older_rocks$onset_ub[i],by=-abs(precision));
+			possible_starting_range_stnd <- abs(possible_starting_range-older_rocks$onset_lb[i])/abs(older_rocks$onset_lb[i]-older_rocks$onset_ub[i]);
+			prob_onset_during[i] <- 1-sum(dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb)));
+			}
+		prob_onset_during <- c(prob_onset_during,1-prob_onset_during[Nb]);
+		ttl_comps <- Nb+1;
+		trb <- match(rock_no,rocks_below$rock_no);
+		for (tc in 1:ttl_comps)	{
+			rocks_below_x <- rocks_below[tc:nrow(rocks_below),];
+			N <- nrow(rocks_below_x);
+			n <- 1+N-match(rock_no,rocks_below_x$rock_no);
+			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_onset_during[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			}
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+#		time_span_older <- seq(orock_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision))
+#		time_span_older_stnd <- abs(time_span_older-orock_lb)/abs(rock_ons_ub-orock_lb);
+#		P_rocks_already_there <- sum(dbeta(time_span_older_stnd[time_span_older>rock_ons_lb],Nb,Nb)/sum(dbeta(time_span_older_stnd,Nb,Nb)));
+		} else	{
+		N <- nrow(rocks_below);
+		n <- match(rock_no,rocks_below$rock_no[N:1]);
+#		time_span_below <- seq(rock_ons_lb-abs(precision/2),rock_ons_ub,by=-abs(precision))
+#		tsb <- length(time_span_below);
+#		time_span_below_stnd <- abs(time_span_below-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+		fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+		}
+	# case where some rocks might end with this rocks range, but might end before
+	if (sum(rocks_above$end_lb>rock_end_lb)>0)	{
+		elders <- sum(rocks_above$end_lb>rock_end_lb);
+		elder_rocks <- rocks_above[rocks_above$end_lb>rock_end_lb,]
+		Na <- nrow(elder_rocks);
+		prob_ending_during <- vector(length=Na);
+		for (i in 1:Na)	{
+			possible_end_range <- seq(elder_rocks$end_lb[i]-abs(precision/2),elder_rocks$end_ub[i],by=-abs(precision));
+			possible_end_range_std <- abs(possible_end_range-elder_rocks$end_ub[i])/abs(elder_rocks$end_lb[i]-elder_rocks$end_ub[i]);
+			prob_ending_during[i] <- 1-sum(dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i)));
+			}
+		prob_ending_during <- c(prob_ending_during,1-prob_ending_during[Na]);
+		ttl_comps <- Na+1;
+		for (tc in 1:ttl_comps)	{
+			rocks_above_x <- rocks_above[tc:nrow(rocks_above),];
+			N <- nrow(rocks_above_x);
+			n <- 1+N-match(rock_no,rocks_above_x$rock_no);
+			fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall] <- fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall]+prob_ending_during[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			}
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		} else	{ # case where all rocks must end in the same span
+		N <- nrow(rocks_above);
+		n <- 1+N-match(rock_no,rocks_above$rock_no);
+		fuzzy_boundaries$L_end[(tsall-tsa+1):tsall] <- dbeta(time_span_above_stnd,N,1)/sum(dbeta(time_span_above_stnd,N,n));
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		}
+	}
+return(fuzzy_boundaries);
+}
+
+rock_start_and_end_probabilities_broke2 <- function(rock_no,section_info,precision=0.1)	{
+trr <- match(rock_no,section_info$rock_no);
+rock_ons_lb <- section_info$onset_lb[trr];
+rock_ons_ub <- section_info$onset_ub[trr];
+rock_end_ub <- section_info$end_ub[trr];
+rock_end_lb <- section_info$end_lb[trr];
+
+time_span_all <- round(seq(rock_ons_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_all_stnd <- abs(time_span_all-rock_ons_lb)/abs(rock_end_ub-rock_ons_lb);
+tsall <- length(time_span_all_stnd);
+fuzzy_boundaries <- data.frame(ma=time_span_all,L_ons=rep(0,length(time_span_all)),L_end=rep(0,length(time_span_all)));
+
+rocks_below <- section_info[section_info$onset_lb>rock_ons_ub,];
+rocks_below <- rocks_below[rocks_below$onset_ub<rocks_below$onset_lb[trr],];
+time_span_below <- round(seq(rock_ons_lb-(abs(precision)/2),rock_ons_ub,by=-abs(precision)),2);
+time_span_below_stnd <- abs(time_span_below-rock_ons_lb)/abs(rock_ons_lb-rock_ons_ub);
+tsb <- length(time_span_below);
+poss_ons <- sort(unique(c(rocks_below$onset_lb,rocks_below$onset_ub)),decreasing = TRUE);
+poss_ons <- poss_ons[poss_ons>=rock_ons_ub];
+
+rocks_above <- section_info[section_info$end_ub<rock_end_lb,]
+rocks_above <- rocks_above[rocks_above$end_lb>rock_end_ub,];
+time_span_above <- round(seq(rock_end_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision)),2);
+time_span_above_stnd <- abs(time_span_above-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+tsa <- length(time_span_above);
+poss_ends <- sort(unique(c(rocks_above$end_lb,rocks_above$end_ub)),decreasing = TRUE);
+poss_ends <- poss_ends[poss_ends<=rock_end_lb];
+
+if (rock_ons_ub>=rock_end_lb)	{
+	N <- nrow(rocks_below);
+	n <- match(rock_no,rocks_below$rock_no[nrow(rocks_below):1]);
+	# add something here to allow for basal rocks to start before this time span #
+	fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,N,n)/sum(dbeta(time_span_below_stnd,N,n));
+	fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+
+	N <- nrow(rocks_above);
+	n <- match(rock_no,rocks_above$rock_no);
+	# add something here to allow for upper rocks to end after this time span #
+#	dbeta(time_span_above_stnd,n,N)
+	fuzzy_boundaries$L_end[(1+tsall-tsa):tsall] <- dbeta(time_span_above_stnd,n,N)/sum(dbeta(time_span_above_stnd,n,N));
+	fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+	fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+#	plot(-fuzzy_boundaries$ma,fuzzy_boundaries$L_pres);
+	} else	{
+	# case where older rock might end before relevant interval
+	if (sum(poss_ons>rock_ons_lb)>0)	{
+		older_rocks <- rocks_below[rocks_below$onset_lb>rock_ons_lb,];
+		# setup loop to go through all possibly already started rocks
+		# for (blah did blah stuff below...)
+		Nb <- nrow(older_rocks);
+		orock_lb <- max(older_rocks$onset_lb);
+		prob_onset_during <- vector(length=Nb);
+		for (i in 1:Nb)	{
+			possible_starting_range <- seq(older_rocks$onset_lb[i]-abs(precision/2),older_rocks$onset_ub[i],by=-abs(precision));
+			possible_starting_range_stnd <- abs(possible_starting_range-older_rocks$onset_lb[i])/abs(older_rocks$onset_lb[i]-older_rocks$onset_ub[i]);
+			prob_onset_during[i] <- 1-sum(dbeta(possible_starting_range_stnd[possible_starting_range>rock_ons_lb],i,Nb)/sum(dbeta(possible_starting_range_stnd,i,Nb)));
+			}
+		prob_onset_during <- c(prob_onset_during,1-prob_onset_during[Nb]);
+		ttl_comps <- Nb+1;
+		trb <- match(rock_no,rocks_below$rock_no);
+		for (tc in 1:ttl_comps)	{
+			rocks_below_x <- rocks_below[tc:nrow(rocks_below),];
+			N <- nrow(rocks_below_x);
+			n <- 1+N-match(rock_no,rocks_below_x$rock_no);
+			fuzzy_boundaries$L_ons[1:tsb] <- fuzzy_boundaries$L_ons[1:tsb]+prob_onset_during[tc]*dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+			}
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+#		time_span_older <- seq(orock_lb-(abs(precision)/2),rock_end_ub,by=-abs(precision))
+#		time_span_older_stnd <- abs(time_span_older-orock_lb)/abs(rock_ons_ub-orock_lb);
+#		P_rocks_already_there <- sum(dbeta(time_span_older_stnd[time_span_older>rock_ons_lb],Nb,Nb)/sum(dbeta(time_span_older_stnd,Nb,Nb)));
+		} else	{
+		N <- nrow(rocks_below);
+		n <- match(rock_no,rocks_below$rock_no[N:1]);
+#		time_span_below <- seq(rock_ons_lb-abs(precision/2),rock_ons_ub,by=-abs(precision))
+#		tsb <- length(time_span_below);
+#		time_span_below_stnd <- abs(time_span_below-rock_end_lb)/abs(rock_end_lb-rock_end_ub);
+		fuzzy_boundaries$L_ons[1:tsb] <- dbeta(time_span_below_stnd,n,N)/sum(dbeta(time_span_below_stnd,n,N));
+		fuzzy_boundaries$P_ons <- cumsum(fuzzy_boundaries$L_ons);
+		}
+	# case where some rocks might end with this rocks range, but might end before
+	if (sum(rocks_above$end_lb>rock_end_lb)>0)	{
+		elders <- sum(rocks_above$end_lb>rock_end_lb);
+		elder_rocks <- rocks_above[rocks_above$end_lb>rock_end_lb,]
+		Na <- nrow(elder_rocks);
+		prob_ending_during <- vector(length=Na);
+		for (i in 1:Na)	{
+			possible_end_range <- seq(elder_rocks$end_lb[i]-abs(precision/2),elder_rocks$end_ub[i],by=-abs(precision));
+			possible_end_range_std <- abs(possible_end_range-elder_rocks$end_ub[i])/abs(elder_rocks$end_lb[i]-elder_rocks$end_ub[i]);
+			prob_ending_during[i] <- 1-sum(dbeta(possible_end_range_std[possible_end_range>rock_end_lb],Na+1-i,i)/sum(dbeta(possible_end_range_std,Na+1-i,i)));
+			}
+		prob_ending_during <- c(prob_ending_during,1-prob_ending_during[Na]);
+		ttl_comps <- Na+1;
+		for (tc in 1:ttl_comps)	{
+			rocks_above_x <- rocks_above[tc:nrow(rocks_above),];
+			N <- nrow(rocks_above_x);
+			n <- 1+N-match(rock_no,rocks_above_x$rock_no);
+			fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall] <- fuzzy_boundaries$L_end[max(1,(1+tsall-tsa)):tsall]+prob_ending_during[tc]*dbeta(time_span_above_stnd,N,n)/sum(dbeta(time_span_above_stnd,N,n));
+			}
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		} else	{ # case where all rocks must end in the same span
+		N <- nrow(rocks_above);
+		n <- 1+N-match(rock_no,rocks_above$rock_no);
+		fuzzy_boundaries$L_end[(tsall-tsa+1):tsall] <- dbeta(time_span_above_stnd,N,1)/sum(dbeta(time_span_above_stnd,N,n));
+		fuzzy_boundaries$P_end <- cumsum(fuzzy_boundaries$L_end);
+		fuzzy_boundaries$L_pres <- fuzzy_boundaries$P_ons*(1-fuzzy_boundaries$P_end);
+		}
+
+	}
+
+return(fuzzy_boundaries);
+}
+
+accersi_age_bounds_on_other_rocks_in_section_with_rock_no_old <- function(rock_no,section,rock_database,radiometric_dates,rock_to_zone_database,precision=0.1,dbug=FALSE)	{
+rock_lb <- rock_database$ma_lb[rock_database$rock_no==rock_no];
+rock_ub <- rock_database$ma_ub[rock_database$rock_no==rock_no];
+rock_orders <- accersi_rock_order_in_section(rock_no=rock_no,section);
+crocks <- length(rock_orders);
+keepers <- this_rock <- match(rock_no,rock_orders);
+#section[match(rock_orders,section$rock_no_up),]
+tr <- this_rock-1;
+if (tr>0) {
+	while (tr>0 && rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+		keepers <- c(tr,keepers);
+		tr <- tr-1;
+		if (tr==0)	break;
+		}
+	}
+tr <- this_rock+1;
+if (tr<crocks)	{
+	while (tr<=crocks && rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+		keepers <- c(keepers,tr);
+		tr <- tr+1;
+		if (tr>crocks)	break;
+		}
+#	if (tr>crocks)	break;
+	}
+rock_orders <- rock_orders[keepers];
+#section_dates <- radiometric_dates[match(hot_rocks,radiometric_dates$rock_no_sr),];
+section_info <- data.frame(rock_no=rock_orders,onset_lb=rock_database$ma_lb[match(rock_orders,rock_database$rock_no)],onset_ub=rock_database$ma_ub[match(rock_orders,rock_database$rock_no)],end_lb=rock_database$ma_lb[match(rock_orders,rock_database$rock_no)],end_ub=rock_database$ma_ub[match(rock_orders,rock_database$rock_no)]);
+zone_rocks <- rock_orders[rock_orders %in% rock_to_zone_database$rock_no_sr];
+zrocks <- length(zone_rocks);
+hot_rocks <- rock_orders[rock_orders %in% radiometric_dates$rock_no_sr];
+hrocks <- length(hot_rocks);
+srocks <- nrow(section_info);
+
+for (sr in 1:srocks)	{
+	srock_no <- section_info$rock_no[sr];
+	if (sr < srocks)	{
+		remainder_above <- (sr+1):srocks;
+		if (section_info$end_ub[sr] < max(section_info$end_ub[remainder_above]))
+			section_info$end_ub[sr] <- max(section_info$end_ub[remainder_above]);
+		if (section_info$end_lb[sr] < max(section_info$end_lb[remainder_above]))
+			section_info$end_lb[sr] <- max(section_info$end_lb[remainder_above]);
+		if (section_info$onset_ub[sr] < max(section_info$onset_ub[remainder_above]))
+			section_info$onset_ub[sr] <- max(section_info$onset_ub[remainder_above]);
+		if (section_info$onset_lb[sr] < max(section_info$onset_lb[remainder_above]))
+			section_info$onset_lb[sr] <- max(section_info$onset_lb[remainder_above]);
+		}
+	if (sr > 1)	{
+		remainder_below <- 1:(sr-1);
+		# make sure that latest possible onset is after that of older rocks
+		if (section_info$onset_ub[sr] > min(section_info$end_ub[remainder_below]))
+			section_info$onset_ub[sr] <- min(section_info$end_ub[remainder_below]);
+		# make sure that earliest possible end is after that of older rocks
+		if (section_info$end_lb[sr] > max(section_info$end_lb[remainder_below]))
+			section_info$end_lb[sr] <- max(section_info$end_lb[remainder_below]);
+		# make sure that earliest possible onset is after that of older rocks
+		if (section_info$onset_lb[sr] > min(section_info$onset_lb[remainder_below]))
+			section_info$onset_lb[sr] <- min(section_info$onset_lb[remainder_below]);
+		}
+
+	# make sure that upper and lower bounds of higher/lower rocks are reset as necessary
+	if (srock_no %in% hot_rocks && srock_no %in% zone_rocks)	{
+		rock_dates <- rbind(radiometric_dates[radiometric_dates$rock_no_sr %in% section_info$rock_no[sr],],
+												radiometric_dates[radiometric_dates$formation_no %in% section_info$rock_no[sr],]);
+		# cut out radiometric dates that are too young or too old to be from this section
+		rock_dates <- rock_dates[rock_dates$ma_lb_event_bed>section_info$end_ub[sr],];
+		rock_dates <- rock_dates[rock_dates$ma_ub_event_bed<section_info$onset_lb[sr],];
+		zone_dates <- rock_to_zone_database[rock_to_zone_database$rock_no_sr %in% section_info$rock_no[sr],];
+		zone_dates <- rock_to_zone_database[rock_to_zone_database$rock_no_sr %in% section_info$rock_no[sr],];
+		# cut out zones that are too young or too old: those shouldn't be in this section
+		zone_dates <- zone_dates[zone_dates$ma_lb>section_info$end_ub[sr],];
+		zone_dates <- zone_dates[zone_dates$ma_ub<section_info$onset_lb[sr],];
+		if (section_info$end_lb[sr] > max(rock_dates$ma_lb_event_bed))
+			section_info$end_lb[sr] <- max(rock_dates$ma_lb_event_bed);
+		if (section_info$end_lb[sr] > min(zone_dates$ma_lb))
+			section_info$end_lb[sr] <- min(zone_dates$ma_lb);
+		if (section_info$onset_ub[sr] < max(rock_dates$ma_ub_event_bed))
+			section_info$onset_ub[sr] <- max(rock_dates$ma_ub_event_bed);
+		if (section_info$onset_ub[sr] < max(zone_dates$ma_ub))
+			section_info$onset_ub[sr] <- max(zone_dates$ma_ub);
+		if (sr>1)				section_info$onset_ub[remainder_below][section_info$onset_ub[remainder_below]<section_info$onset_ub[sr]] <- section_info$onset_ub[sr];
+		if (sr<srocks)	section_info$end_lb[remainder_above][section_info$end_lb[remainder_above]>section_info$end_lb[sr]] <- section_info$end_lb[sr];
+		} else if (srock_no %in% hot_rocks)	{
+		rock_dates <- radiometric_dates[radiometric_dates$rock_no_sr %in% section_info$rock_no[sr],];
+		section_info$onset_ub[sr] <- min(rock_dates$ma_ub_event_bed);
+		section_info$end_lb[sr] <- max(rock_dates$ma_lb_event_bed);
+		if (section_info$onset_lb[sr] < max(rock_dates$ma_lb_event_bed))
+			section_info$onset_lb[sr] <- max(rock_dates$ma_lb_event_bed);
+		if (sr>1)				section_info$onset_ub[remainder_below][section_info$onset_ub[remainder_below]<section_info$onset_ub[sr]] <- section_info$onset_ub[sr];
+		if (sr<srocks)	section_info$end_lb[remainder_above][section_info$end_lb[remainder_above]>section_info$end_lb[sr]] <- section_info$end_lb[sr];
+		} else if (srock_no %in% zone_rocks)	{
+		zone_dates <- rock_to_zone_database[rock_to_zone_database$rock_no_sr %in% section_info$rock_no[sr],];
+		# cut out zones that are too young or too old: those shouldn't be in this section
+		zone_dates <- zone_dates[zone_dates$ma_lb>section_info$end_ub[sr],];
+		zone_dates <- zone_dates[zone_dates$ma_ub<section_info$onset_lb[sr],];
+		section_info$onset_ub[sr] <- max(zone_dates$ma_ub);
+		section_info$end_lb[sr] <- min(zone_dates$ma_lb);
+		if (section_info$end_lb[sr]<=section_info$end_ub[sr])
+			section_info$end_ub[sr] <- min(zone_dates$ma_ub);
+		if (sr>1)				section_info$onset_ub[remainder_below][section_info$onset_ub[remainder_below]<section_info$onset_ub[sr]] <- section_info$onset_ub[sr];
+		if (sr<srocks)	section_info$end_lb[remainder_above][section_info$end_lb[remainder_above]>section_info$end_lb[sr]] <- section_info$end_lb[sr];
+		}
+	if (dbug)	print(section_info);
+	}
+for (sr in 2:srocks)	{
+	section_info$end_lb[1:(sr-1)][section_info$end_lb[1:(sr-1)]<section_info$end_lb[sr]] <- section_info$end_lb[sr];
+	section_info$end_ub[1:(sr-1)][section_info$end_ub[1:(sr-1)]<section_info$end_ub[sr]] <- section_info$end_ub[sr];
+	}
+
+section_info <- round(section_info,-log10(precision));
+return(section_info);
+}
+
+useless_crap <- function() {
+hr <- 1;
+while (hr < hrocks)	{
+	rock_dates <- radiometric_dates[radiometric_dates$rock_no_sr %in% hot_rocks[hr],]
+	tr <- match(hot_rocks[hr],section_info$rock_no);
+	section_info$onset_ub[tr] <- max(rock_dates$ma_ub_event_bed);
+	section_info$end_lb[tr] <- min(rock_dates$ma_lb_event_bed);
+	if (section_info$onset_lb[tr] < max(rock_dates$ma_lb_event_bed))
+		section_info$onset_lb[tr] <- max(rock_dates$ma_lb_event_bed);
+	if (section_info$end_ub[tr] > min(rock_dates$ma_ub_event_bed))
+		section_info$end_ub[tr] <- min(rock_dates$ma_ub_event_bed);
+	hr <- hr+1;
+	}
+srocks <- nrow(section_info);
+for (sr in 1:(srocks-1))	section_info$end_ub[sr] <- max(section_info$onset_ub[(sr+1):srocks]);
+for (sr in srocks:2)			section_info$onset_lb[sr] <- min(section_info$end_lb[1:(sr-1)]);
+#for (sr in 1:(srocks-1))	section_info$end_lb[sr] <- max(section_info$onset_lb[(sr+1):srocks]);
+for (sr in srocks:2)			section_info$end_lb[sr] <- min(section_info$onset_lb[1:sr]);
+for (sr in 1:(srocks-1))
+	if (section_info$onset_ub[sr]<section_info$onset_ub[sr+1])
+		section_info$onset_ub[sr] <- max(section_info$end_ub[sr:srocks]);
+#for (sr in 1:(srocks-1))	section_info$onset_ub[sr] <- max(section_info$end_ub[sr:srocks]);
+#if (section_info$ma_lb[1]<max(section_info$ma_lb[2]))	section_info$ma_lb[1] <- max(section_info$ma_lb[2]);
+section_info <- round(section_info,-log10(precision))
+return(section_info);
+}
+
+accersi_age_bounds_on_section_rocks_old <- function(section,rock_database,radiometric_dates,precision=0.1)	{
+rock_orders <- accersi_rock_order_in_section(rock_no=rock_no,section);
+crocks <- length(rock_orders);
+keepers <- this_rock <- match(rock_no,rock_orders);
+tr <- this_rock-1;
+while (tr>0 & rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+	keepers <- c(tr,keepers);
+	tr <- tr-1;
+	if (tr==0)	break;
+	}
+tr <- this_rock+1;
+while (tr<=crocks & rock_database$ma_lb[rock_database$rock_no==rock_orders[tr]]>rock_ub & rock_database$ma_ub[rock_database$rock_no==rock_orders[tr]]<rock_lb)	{
+#			print(tr)
+	keepers <- c(keepers,tr);
+	tr <- tr+1;
+	if (tr>crocks)	break;
+	}
+rock_orders <- rock_orders[keepers];
+hot_rocks <- rock_orders[rock_orders %in% radiometric_dates$rock_no_sr];
+#section_dates <- radiometric_dates[match(hot_rocks,radiometric_dates$rock_no_sr),];
+section_info <- data.frame(rock_no=rock_orders,
+													 ma_lb=rock_database$ma_lb[match(rock_orders,rock_database$rock_no)],
+													 ma_ub=rock_database$ma_ub[match(rock_orders,rock_database$rock_no)]);
+#															 earliest_start=rep(0,length(rock_orders)),latest_end=rep(0,length(rock_orders)));
+section_info$latest_start <- section_info$ma_ub;
+section_info$earliest_end <- section_info$ma_lb;
+hrocks <- length(hot_rocks);
+hr <- 1;
+while (hr < hrocks)	{
+	rock_dates <- radiometric_dates[radiometric_dates$rock_no_sr %in% hot_rocks[hr],]
+	tr <- match(hot_rocks[hr],section_info$rock_no);
+	section_info$latest_start[tr] <- max(rock_dates$ma_ub_event_bed);
+	section_info$earliest_end[tr] <- min(rock_dates$ma_lb_event_bed);
+	hr <- hr+1;
+	}
+srocks <- nrow(section_info);
+for (sr in 1:(srocks-1))	section_info$ma_ub[sr] <- max(section_info$latest_start[(sr+1):srocks]);
+for (sr in srocks:2)	section_info$ma_lb[sr] <- min(section_info$earliest_end[1:(sr-1)]);
+if (section_info$ma_lb[1]<max(section_info$ma_lb[2]))	section_info$ma_lb[1] <- max(section_info$ma_lb[2]);
+section_info$ma_lb <- round(section_info$ma_lb,-log10(precision));
+section_info$ma_ub <- round(section_info$ma_ub,-log10(precision));
+section_info$latest_start <- round(section_info$latest_start,-log10(precision));
+section_info$earliest_end <- round(section_info$earliest_end,-log10(precision));
+return(section_info);
 }
 
 accersi_rocks_in_same_section_and_time_slice <- function(rock_no,section,formations_from_members=F,temporal_precision=0.1)	{
@@ -2933,7 +4273,7 @@ return(cooccur_matrix_best);
 # revised 2020-06-15
 # revised 2023-04-01
 # paleodb_finds=interval_finds;paleodb_collections=interval_sites;hierarchical_chronostrat=hierarchical_chronostrat;zone_database=interval_zones
-optimo_paleodb_collection_and_occurrence_stratigraphy <- function(paleodb_finds,paleodb_collections,hierarchical_chronostrat,zone_database,update_search=T,update_output="horizontal")	{
+optimo_paleodb_collection_and_occurrence_stratigraphy <- function(paleodb_finds,paleodb_collections,hierarchical_chronostrat,zone_database,update_search=TRUE,update_output="horizontal")	{
 # rescore collections if there is any lumping of reported stages into useful stages
 ncolls <- nrow(paleodb_collections);
 nstages <- max(hierarchical_chronostrat$bin_last);
@@ -2948,7 +4288,11 @@ to_fix <- (1:noccr)[paleodb_finds$accepted_rank %in% c("genus","subgenus")];
 accepted_genus <- paleodb_finds$genus[to_fix];
 identified_name <- paleodb_finds$identified_name[to_fix];
 fixed_names <- c();
-for (fn in 1:length(to_fix))	fixed_names <- c(fixed_names,transmogrify_accepted_species_name(identified_name[fn],accepted_genus[fn]))
+fn <- 0;
+while (fn < length(to_fix))	{
+	fn <- fn+1;
+	fixed_names <- c(fixed_names,transmogrify_accepted_species_name(identified_name[fn],accepted_genus[fn]))
+	}
 paleodb_finds$accepted_name[to_fix] <- fixed_names;
 
 # cull out "sp."
@@ -2973,13 +4317,13 @@ paleodb_finds$interval_ub <- as.character(paleodb_collections$interval_ub[coll_t
 finest_chronostrat <- hierarchical_chronostrat[hierarchical_chronostrat$bin_first==hierarchical_chronostrat$bin_last,];
 finest_chronostrat <- finest_chronostrat[match(finest_chronostrat$bin_first,finest_chronostrat$bin_first),];
 finest_chronostrat <- unique(finest_chronostrat);
-
+#finest_chronostrat[finest_chronostrat$ma_ub[1:(nn-1)]!=finest_chronostrat$ma_lb[2:nn],]
 ### problem is before here: for some reason, there are NAs in the ages.
 taxon <- taxon_names;
 print(paste("Getting basic stratigraphic range data for",length(taxon),"species..."));
 ntaxa <- length(taxon);
 m_r_d <- data.frame();
-for (tn in 1:ntaxa)	m_r_d <- rbind(m_r_d,tally_fuzzy_stratigraphic_ranges_sapply(taxon=taxon_names[tn],all_finds=paleodb_finds,hierarchical_chronostrat=hierarchical_chronostrat));
+#for (tn in 1:ntaxa)	m_r_d <- rbind(m_r_d,tally_fuzzy_stratigraphic_ranges_sapply(taxon=taxon_names[tn],all_finds=paleodb_finds,hierarchical_chronostrat=hierarchical_chronostrat));
 m_r_d <- data.frame(base::t(pbapply::pbsapply(taxon,tally_fuzzy_stratigraphic_ranges_sapply,all_finds=paleodb_finds,hierarchical_chronostrat)));
 #m_r_d$ma_fa_lb <- as.numeric(unlist(m_r_d$ma_fa_lb)); m_r_d$ma_fa_ub <- as.numeric(unlist(m_r_d$ma_fa_ub));
 #m_r_d$ma_la_lb <- as.numeric(unlist(m_r_d$ma_la_lb)); m_r_d$ma_la_ub <- as.numeric(unlist(m_r_d$ma_la_ub));
@@ -2993,12 +4337,16 @@ minimum_range_data <- data.frame(ma_fa_mx=as.numeric(unlist(m_r_d$ma_fa_lb)),
 								 stringsAsFactors = F);
 rownames(minimum_range_data) <- taxon_names;
 #tally_fuzzy_stratigraphic_ranges_sapply(taxon=taxon[269],all_finds=paleodb_finds,hierarchical_chronostrat)
-#duds1 <- (1:ntaxa)[is.na(minimum_range_data$interval_lb)];
-#age <- minimum_range_data$ma_fa_mx[(1:ntaxa)[is.na(minimum_range_data$interval_lb)]];
-#minimum_range_data$interval_lb[(1:ntaxa)[is.na(minimum_range_data$interval_lb)]] <- sapply(age,rebin_collection_with_time_scale,onset_or_end="onset",fine_time_scale=finest_chronostrat);
-#duds2 <- (1:ntaxa)[is.na(minimum_range_data$interval_ub)];
-#age <- minimum_range_data$ma_la_mn[(1:ntaxa)[is.na(minimum_range_data$interval_ub)]];
-#minimum_range_data$interval_ub[(1:ntaxa)[is.na(minimum_range_data$interval_ub)]] <- sapply(age,rebin_collection_with_time_scale,onset_or_end="end",fine_time_scale=finest_chronostrat);
+duds1 <- (1:ntaxa)[is.na(minimum_range_data$interval_lb)];
+if (length(duds1)>0)	{
+	age <- minimum_range_data$ma_fa_mx[(1:ntaxa)[is.na(minimum_range_data$interval_lb)]];
+	minimum_range_data$interval_lb[(1:ntaxa)[is.na(minimum_range_data$interval_lb)]] <- sapply(age,rebin_collection_with_time_scale,onset_or_end="onset",fine_time_scale=finest_chronostrat);
+	}
+duds2 <- (1:ntaxa)[is.na(minimum_range_data$interval_ub)];
+if (length(duds2)>0)	{
+	age <- minimum_range_data$ma_la_mn[(1:ntaxa)[is.na(minimum_range_data$interval_ub)]];
+	minimum_range_data$interval_ub[(1:ntaxa)[is.na(minimum_range_data$interval_ub)]] <- sapply(age,rebin_collection_with_time_scale,onset_or_end="end",fine_time_scale=finest_chronostrat);
+	}
 #minimum_range_data$interval_ub[duds]
 
 zone_taxa <- taxon_names[taxon_names %in% zone_database$zone];
@@ -3076,6 +4424,7 @@ if (update_search && update_output=="vertical")	{
 	print(base::t(progress));
 	}
 
+problems <- c();
 while (improved > 0)	{
 	newly_fixed <- new_and_improved <- 0;
 	uc <- 0;	# uc <- match(problems[12],unfixed_collections)
@@ -3099,9 +4448,13 @@ while (improved > 0)	{
 				bin_ub[coll_no] <- max(poss_range[bin_gaps==min(bin_gaps)])[1];
 				new_and_improved <- new_and_improved+1;
 				paleodb_collections$interval_lb[coll_no] <- finest_chronostrat$interval[match(bin_lb[coll_no],finest_chronostrat$bin_first)][1];
+				if (is.na(paleodb_collections$interval_lb[coll_no]))	problems <- unique(rbind(problems,c(attempt,uc,coll_no)));
 				paleodb_collections$interval_ub[coll_no] <- finest_chronostrat$interval[match(bin_ub[coll_no],finest_chronostrat$bin_last)][1];
+				if (is.na(paleodb_collections$interval_ub[coll_no]))	problems <- unique(rbind(problems,c(attempt,uc,coll_no)));
 				paleodb_collections$ma_lb[coll_no] <- min(paleodb_collections$ma_lb[coll_no],finest_chronostrat$ma_lb[match(bin_lb[coll_no],finest_chronostrat$bin_first)])[1];
+				if (is.na(paleodb_collections$ma_lb[coll_no]))			problems <- unique(rbind(problems,c(attempt,uc,coll_no)));
 				paleodb_collections$ma_ub[coll_no] <- max(paleodb_collections$ma_ub[coll_no],finest_chronostrat$ma_ub[match(bin_ub[coll_no],finest_chronostrat$bin_last)])[1];
+				if (is.na(paleodb_collections$ma_ub[coll_no]))			problems <- unique(rbind(problems,c(attempt,uc,coll_no)));
 				# case where we've narrowed it down to one bin
 				if (sum(bin_gaps==min_gap_to_set)==1)	{
 					# the earliest possible first occurrences must be at least as old as the oldest possible first occurrences

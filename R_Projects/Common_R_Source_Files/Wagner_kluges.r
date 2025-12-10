@@ -21,6 +21,23 @@ for (i in 1:ncol(data))	data[is.na(data[,i]),i] <- replacement;
 return(data)
 }
 
+clear_na_from_dataframe <- function(dataframe, character_replacement="", number_replacement=0, date_replacement="")  {
+#size <- dim(data)
+#for (i in 1:size[1])	{
+#	for (j in 1:size[2]) if (is.na(data[i,j]))	data[i,j] <- replacement
+#	}
+for (i in 1:ncol(dataframe))	{
+	if (is.numeric(dataframe[1,i]))	{
+		dataframe[is.na(dataframe[,i]),i] <- number_replacement;
+		} else if (is.character(dataframe[1,i]))	{
+		dataframe[is.na(dataframe[,i]),i] <- character_replacement;
+		} else {
+		dataframe[is.na(dataframe[,i]),i] <- date_replacement;
+		}
+	}
+return(dataframe)
+}
+
 clear_matrix_na_with_another_cell_value <- function(data,j, k)	{
 size <- dim(data)
 for (i in 1:size[1])	{

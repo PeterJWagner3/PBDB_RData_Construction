@@ -8,13 +8,15 @@
 # scribere: write
 #install.packages("devtools", dependencies=TRUE);
 #library(paleobioDB);    #install.packages("paleobioDB", dependencies=TRUE);
-library(stringr);       #install.packages("stringr", dependencies=TRUE)
 #library(lettercase);	#devtools::install_github('decisionpatterns/lettercase')
 #library(raster);			#devtools::install_github("https://github.com/RcppCore/Rcpp/")
-library(Rcpp);			#devtools::install_github("https://github.com/RcppCore/Rcpp/")
-library(rvest);
 library(dplyr);
+library(httr);
 library(prodlim);		#install.packages("prodlim", dependencies=TRUE);
+library(Rcpp);			#devtools::install_github("https://github.com/RcppCore/Rcpp/")
+library(RCurl);
+library(rvest);
+library(stringr);       #install.packages("stringr", dependencies=TRUE)
 library(xml2);			#install.packages("xml2", dependencies=TRUE);
 
 periods <- c("Eoarchean","Paleoarchean","Mesoarchean","Neoarchean","Siderian","Rhyacian","Orosirian","Statherian","Calymmian","Ectasian","Stenian","Tonian","Cryogenian","Ediacaran","Cambrian","Ordovician","Silurian","Devonian","Carboniferous","Permian","Triassic","Jurassic","Cretaceous","Paleogene","Neogene","Quaternary");
@@ -27,8 +29,11 @@ reef_builder_clades <- c("Cyanophyceae","Corallinophycidae","Oscillatoriales","A
 uncertains <- c("cf.","aff.","ex_gr.","ex gr.");
 taxon_qualifiers <- c("\\? "," \\?","cf. ","aff. ","ex_gr. ","ex gr. ","n. sp. ","n. subgen. ","n. gen. "," informal");
 nomens <- c("nomen dubium","nomen nudum","nomen oblitum","nomen vanum");
-bad_pbdb_collections <- c(1583,2237,3832,49496,98219,154013,226273);
+bad_pbdb_collections <- c(271,293,443,1315,1583,2237,3832,10285,42505,42506,42507,42508,42509,49496,98219,154013,160725,214129,226273);
 hell_no <- F;
+bad_taxon_entries <- c("n. gen.  n. sp. sp.","UNKNOWN"," sp.", "cf.  sp.");
+not_a_species <- c("sp.","indet.");
+reided <- c("R","RI","RF","RIF");
 
 carbonate_environments <- c("carbonate indet.","peritidal","shallow subtidal indet.","open shallow subtidal","lagoonal/restricted shallow subtidal","sand shoal","reef, buildup or bioherm","perireef or subreef","intrashelf/intraplatform reef","platform/shelf-margin reef","slope/ramp reef","basin reef","deep subtidal ramp","deep subtidal shelf","deep subtidal indet.","offshore ramp","offshore shelf","offshore indet.","slope","basinal (carbonate)","basinal (siliceous)");
 siliciclastic_environments <- c("marginal marine indet.","coastal indet.","estuary/bay","lagoonal","paralic indet.","delta plain","interdistributary bay","delta front","prodelta","deltaic indet.","foreshore","shoreface","transition zone/lower shoreface","offshore","submarine fan","basinal (siliciclastic)","deep-water indet.");
@@ -49,21 +54,25 @@ suspension_feeders <- c("suspension feeder","suspension feeder, photosymbiotic",
 muck_eaters <- c("deposit feeder","carnivore","deposit feeder, suspension feeder","omnivore, grazer","detritivore","grazer","detritivore, suspension feeder","browser, omnivore","detritivore, grazer","grazer, deposit feeder","carnivore, suspension feeder","deposit feeder, chemosymbiotic","omnivore","deposit feeder, detritivore","carnivore, detritivore","detritivore, omnivore");
 
 uncertain_species <- c("uncertain species","uncertain genus, uncertain species");
+uncertain_genus <- c("uncertain genus","uncertain genus, uncertain species");
 
-sedimentary_rocks <- c("arenarie","areniscas","argillaceous","argilliti","ashes","ash","bentonite","bentonitic","calcaerous","calcaire","calcaires","calcarenite","calcarenites","calcirudites","calcirudite","carbonate","chalk","cherty","cherts","chert","clay","claystone","claystones","conglomerates","conglomerate","coquina","coquinas","diatomite","dolomites","dolomite","dolostones","dolostone","evaporites","evaporite","flags","flagstone","flagstones","glauconites","glauconite","glauconitics","glauconitic","gres","grauwacke","greywacke","greywackes","grits","grit","kalk","kalkmergel","limestone","limestones","limeston","limstone","ls.","ls","lst","lst.","lutitas","marlstones","marlstone","marl","marls","marly","marne","micrites","micrite","mergel","mudstones","mudstone","ooid","ooids","oolitic","pebbles","pebble","phosphatics","phosphatic","phosphorite","phosphorites","platy","qzt.","quartzite","quartzites","quarziti","reef","sands","sand","sandstone","sandstones","scheiferen","scheifer","schichten","schistes","shales","shale","shaly","siltstones","siltstone","slates","slate","tillite","tillites","tuff","tuffs","volcanic","volcanics");
+sedimentary_rocks <- c("andesite","arenarie","areniscas","argillaceous","argile","argiles","argillite","argilliti","ashes","ash","bentonite","bentonitic","calcaerous","calcaire","calcaires","calcare","calcarenite","calcarenites","calcirudites","calcirudite","carbonate","chalk","cherty","cherts","chert","clay","claystone","claystones","coal","coals","conglomerates","conglomerate","coquina","coquinas","diatomite","dolomias","dolomites","dolomite","dolostones","dolostone","escudo","evaporites","evaporite","falun","flags","flagstone","flagstones","glauconites","glauconite","glauconitics","glauconitic","greensand","greensands","gres","grauwacke","greywacke","greywackes","grits","grit","ignimbrites","ignimbrite","ironstone","ironstones","kalk","kalkmergel","limestone","limestones","limeston","limstone","ls.","ls","lst","lst.","lutitas","marlstones","marlstone","marl","marls","marly","marne","marnes","measures","measure","micrites","micrite","mergel","mudstones","mudstone","ooid","ooids","oolites","oolite","oolitic","plattenkalk","pebbles","pebble","phosphatics","phosphatic","phosphorite","phosphorites","platenkalk","platy","qzt.","quartzite","quartzites","quarziti","radiolarite","radiolarites","rhyodacites","rhyodacite","reef","sables","sable","sands","sand","sandstone","sandstones","scheiferen","scheifer","schiefer","schichten","schistes","shales","shale","shaly","silt","silts","siltstones","siltstone","slates","slate","tillite","tillites","tuff","tuffs","tuffeau","tuffites","tuffite","volcanic","volcanics");
 missing_taxon_assignment <- c("NP","NO","NC","NF","NG","");
 missing_data_assignment <- c("NP","NO","NC","NF","NG","","coordinates not computable using this model");
 paleodb_numeric_fields <- c("no","ma","size","occs","colls","geoplate","plate","subset","lat","lng","paleolat","paleolng","bin","max_ma","min_ma","n_colls","n_occs","gplate_no","splate_no","pubyr");
 same_differences <- c("misspelling of","obsolete variant of","recombined as");
 contemporize <- c("V","VF","VI","VIF","BV");
 
+ranking <- c("first","second","third","fourth","fifth","sixth","seventh","eighth","ninth");
 #taxonomic_rank <- c("subspecies","species","subgenus","genus","subtribe","tribe","subfamily","family","superfamily","infraorder","suborder");
 standard_pbdb_taxon_ranks <- c("phylum","class","order","family","genus","subgenus","species","subspecies");
-taxonomic_rank <- c("subspecies","species","subgenus","genus","subtribe","tribe","subfamily","family","superfamily","infraorder","suborder","order","superorder","infraclass","subclass","class","superclass","subphylum","phylum","superphylum","subkingdom","kingdom","superkingdom","unranked clade","informal");
+linnean_ranks <- taxonomic_rank <- c("subspecies","species","subgenus","genus","subtribe","tribe","subfamily","family","superfamily","infraorder","suborder","order","superorder","infraclass","subclass","class","superclass","subphylum","phylum","superphylum","subkingdom","kingdom","superkingdom","unranked clade","informal");
 taxonomic_field <- c(taxonomic_rank,c("subspecies_no","species_no","subgenus_no","genus_no","subtribe_no","tribe_no","subfamily_no","family_no","superfamily_no","infraorder_no","suborder_no","order_no","superorder_no","infraclass_no","subclass_no","class_no","superclass_no","subphylum_no","phylum_no","superphylum_no","subkingdom_no","kingdom_no","superkingdom_no","unranked clade_no","informal_no"));
-plant_phyla <- c("Aneurophytophyta","Angiospermae","Antherocerotophyta","Anthophyta","Archaeopteridophyta","Botryopteridiophyta","Bryophyta","Charophyta","Chlorophyta","Cladoxylophyta","Coniferophyta","Cycadeoideophyta","Cycadophyta","Cyanobacteria","Equisetophyta","Filicophyta","Ginkgophyta","Gnetophyta","Gymnospermae","Gymnospermophyta","Isoetophyta","Langiophytophyta","Lycophyta","Lycopodiophyta","Lycopodophyta","Magnoliophyta","Marattiophyta","Marchantiophyta","Moresnetiophyta","Noeggerathiophyta","Ophioglossophyta","Peltaspermophyta","Pinophyta","Polypodiophyta","Progymnospermophyta","Psilophytophyta","Pteridophyta","Pteridospermophyta","Rhodophyta","Rhyniophyta","Spermatophyta","Sphenophyllophyta","Sphenophyta","Thallophyta","Tracheophyta","Trimerophytophyta","Zosterophyllophyta");
+plant_phyla <- c("Anthocerophyta","Aneurophytophyta","Angiospermae","Antherocerotophyta","Anthophyta","Archaeopteridophyta","Botryopteridiophyta","Bryophyta","Charophyta","Chlorophyta","Cladoxylophyta","Coniferophyta","Cycadeoideophyta","Cycadophyta","Cyanobacteria","Equisetophyta","Filicophyta","Ginkgophyta","Gnetophyta","Gymnospermae","Gymnospermophyta","Isoetophyta","Langiophytophyta","Lycophyta","Lycopodiophyta","Lycopodophyta","Magnoliophyta","Marattiophyta","Marchantiophyta","Moresnetiophyta","Noeggerathiophyta","Ophioglossophyta","Peltaspermophyta","Pinophyta","Polypodiophyta","Progymnospermophyta","Psilophytophyta","Pteridophyta","Pteridospermophyta","Rhodophyta","Rhyniophyta","Spermatophyta","Sphenophyllophyta","Sphenophyta","Thallophyta","Tracheophyta","Trimerophytophyta","Zosterophyllophyta");
+fungi_phyla <- c("Ascomycota","Basidiomycota","Chytridiomycota","Oomycota");
 land_plants <- c("Angiospermae","Coniferophyta","Ginkgophyta","Haptophyta","Pinophyta","Psilophytophyta","Pteridophyta","Spermatophyta","Tracheophyta");
-protist_phyla <- c("Actinopoda","Bacillariophyta","Cyanobacteria","Foraminifera","Heterokontophyta","Ochrophyta","Prasinophyta","Radiolaria","Sarcodina");
+protist_phyla <- c("Acoela","Actinopoda","Bacillariophyta","Cercozoa","Ciliophora","Cyanobacteria","Foraminifera","Heterokontophyta","Ochrophyta","Prymnesiophyta","Prasinophyta","Radiolaria","Sarcodina");
+metazoan_taxa <- c("Agmata","Arboreomorpha","Atalotaenia","Bilateria","Bilaterialomorpha","Bomakellia","Broccoliforma","Bronicella","Chenmengella","Chondroplon","Cnidaria","Convolutubus","Deuteronectanebos","Dictyorhabdus","Diploblastica","Eodiorygma","Epitheliozoa","Erniettomorpha","Eumetazoa","Euradiculata","Evmiaksia","Gaojiashania","Gephyrea","Goettingenia","Hadrynichorde","Hadryniscala","Helanoichnus","Homoblastica","Hyolithelminthida","Khasaktidae","Kimberellomorpha","Kinzeriidae","Kuckaraukia","Lazaichnus","Lidaconus","Limacites","Lomosovis","Macrocypris","kayi","Megathrix","Mesozoa","Muricassis","Nectocarididae","Odontogriphidae","Oligoopilionus","Palaeacmaea","Parazoa","Pentaradialomorpha","Persimedusites","Petalonamae","Porifera","Proarticulata","Problematica","Protolyellia","Rhizostomites","Scenellopsis","Sentularia","Silicea","Silicispongea","Siphonoconcha","Somatohelix","Spygoria","Subtilicyathus","Tentaculitoidea","Tetraradialomorpha","Trichoplax","Triradialomorpha","Ventogyrus","Vertebrosa","Westgardia","Xidazoon","Yangtziramulus","Yelovichnus","Yunnanomedusa");
 obsolete <- c("subjective synonym of","objective synonym of","replaced by");
 publication_years <- 1700:2100;
 publication_years_paren <- paste("(",publication_years,")",sep="");
@@ -97,6 +106,8 @@ dummy_finds2 <- data.frame(occurrence_no=as.numeric(),record_type=as.character()
 						  abund_value=as.character(),abund_unit=as.character(),
 						  created=as.character(),modified=as.character(),accepted_name_orig=as.character(),
 						  stringsAsFactors = F);
+the_thes <- c("de","di","du","del","el");
+rock_cols <- c("formation","member","group","rock_unit_senior","formation_clean_basic","formation_clean_no_rock","formation_clean_no_rock_formal","member_clean_basic","member_clean_no_rock","member_clean_no_rock_formal","group_clean_basic","group_clean_no_rock","group_clean_no_rock_formal","rock_unit_clean_basic","rock_unit_clean_no_rock","rock_unit_clean_no_rock_formal");
 
 # permanently lostreferences;
 bbc_archived_references <- c(15,67,79,82,197,203,240,271,309,418,459,556,557,590,814,815,816,817,818,824,843,874,1370,2951,3260,3641,3812,3839,3854,3855,3857,3858,3881,3882,3943,4065,4238,4243,4300,4301,4310,4311,4312,4313,4314,4315,4328,4392,4426,4429,4441,4715,4725,4726,4727,4728,4731,4742,4743,4777,5030,5655,5677,5701,5751,5754,5758,5759,5776,5777,5810,5813,5824,5856,5865,5866,5867,5870,5876,5900,5909,5910,5911,5912,5913,5914,5915,5950,5962,5999,6498,7929,9102,9249,9266,11965,12495,12496,12497,15435,16942,23776,25190,25562,26451,30457,36857,42348,44238,73291);
@@ -114,6 +125,8 @@ options(warn=-1);
 salvage_unicode <- cbind(strsplit(funky_characters,"")[[1]],gtools::ASCIIfy(strsplit(funky_characters,"")[[1]]));
 salvage_unicode <- salvage_unicode[!salvage_unicode[,2] %in% c("?","i"),];
 options(warn=1);
+write.csv(salvage_unicode,"Check_these.csv",row.names=FALSE);
+session_id <- "B6F75BFA-005E-11F0-9BFD-FFF8773E4A56";
 
 					##### ROUTINES TO DOWNLOAD PBDB OCCURRENCE & LOCALITY DATA USING API #######
 list_to_dataframe_for_pbdb_data <- function(pbdb_list)	{
@@ -171,12 +184,13 @@ for (cn in 1:ncol(paleodb_data))	{
 		}
 #	print(cn)
 	}
-if (!is.null(paleodb_data$created))	{
+if (!is.null(paleodb_data$created) & cn<0)	{
 	pbdb_date <- paleodb_data$created;
 	ndates1 <- (1:length(pbdb_date))[!is.na(as.numeric(pbdb_date))];
 	ndates2 <- (1:length(pbdb_date))[is.na(as.numeric(pbdb_date))];
 	pbdb_date[ndates1] <- as.character(as.Date.numeric(as.numeric(pbdb_date[ndates1]),origin="1970-01-01"));
 	pbdb_date[ndates2] <- as.Date.character(as.Date.character(paleodb_data$created[ndates2]));
+#	for (i in 1:length(ndates2))	pbdb_date[ndates2[i]] <- as.Date.character(as.Date.character(paleodb_data$created[ndates2[i]]));
 
 	pbdb_date <- paleodb_data$modified;
 	ndates1 <- (1:length(pbdb_date))[!is.na(as.numeric(pbdb_date))];
@@ -248,6 +262,7 @@ if (gsub("\\/","-",as.character(pbdb_date))!=as.character(pbdb_date))	{
 # modified 2020-05-05
 # modified 2021-07-09
 # modified 2022-03-01: now an option to include ecospace
+# modified 2025-08-11: Now corrects PBDB incorrectly stating that many identified species are identified as genera
 accersi_occurrence_data <- function(taxa,onset="Archean",end="Holocene",basic_environments="terr,marine,unknown",species_only=TRUE,clean_entered_taxa=TRUE,ecospace=F,directory="",save_files=TRUE,output_type=".csv") {
 # Arguments:
 # 	taxa: proper taxonomic name
@@ -292,6 +307,15 @@ if (!is.na(match("THIS REQUEST RETURNED NO RECORDS",fetched)))	{
 #		all_finds <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=hell_no);
 #		}
 	all_finds <- expello_na_from_matrix(data=all_finds,replacement = "");
+	ided_names <- all_finds$identified_name;
+	print("Redoing identified ranks to catch species that the PBDB calls genera")
+	ided_names <- pbapply::pbsapply(ided_names,mundify_taxon_names);
+	nfinds <- nrow(all_finds);
+	nsfinds <- (1:nfinds)[all_finds$identified_rank %in% c("genus","subgenus")];
+
+	revised_ided_rank <- pbapply::pbsapply(all_finds$identified_name[nsfinds],is.species);
+	all_finds$identified_rank[nsfinds[revised_ided_rank]] <- "species";
+
 	if (species_only)	{
 #		xxx <- (1:nrow(all_finds))[all_finds$identified_rank %in% c("species","subspecies")]
 		desired_finds <- all_finds[all_finds$identified_rank %in% c("species","subspecies"),];
@@ -511,17 +535,241 @@ if (!is.na(match("THIS REQUEST RETURNED NO RECORDS",fetched)))	{
 	}
 }
 
+accersi_occurrence_data_from_dataframe <- function(all_finds,species_only=FALSE,clean_entered_taxa=FALSE,directory="") {
+# 2025-08-11: Revised to recognized entries identified as species as PBDB no longer does so for species without taxonomic entries
+# Arguments:
+# 	all_finds: data.frame with PBDB finds
+# 	species_only: return only species level ids
+# 	clean_entered_taxa: try to clean taxonomy
+all_finds <- expello_na_from_matrix(data=all_finds,replacement = "");
+
+ided_names <- all_finds$identified_name;
+print("Redoing identified ranks to catch species that the PBDB calls genera. (This is a new fuck up)")
+ided_names <- pbapply::pbsapply(ided_names,mundify_taxon_names);
+#ided_names[all_finds$occurrence_no==339345]
+nfinds <- nrow(all_finds);
+nsfinds <- (1:nfinds)[all_finds$identified_rank %in% c("genus","subgenus")];
+#mundify_taxon_names("Elephas cf. sp.")
+revised_ided_rank <- pbapply::pbsapply(ided_names,is.species);
+new_rank <- all_finds$identified_rank;
+new_rank[revised_ided_rank] <- "species";
+all_finds$accepted_name[new_rank!=all_finds$identified_rank]
+ided_names[new_rank!=all_finds$identified_rank]
+
+all_finds$accepted_name[all_finds$identified_rank %in% c("genus","subgenus") & new_rank=="species"] <- nn <- paste(all_finds$accepted_name[all_finds$identified_rank %in% c("genus","subgenus") & new_rank=="species"],sapply(ided_names[all_finds$identified_rank %in% c("genus","subgenus") & new_rank=="species"],divido_species_epithets));
+all_finds$accepted_rank[all_finds$identified_rank %in% c("genus","subgenus") & new_rank=="species"] <- "species";
+all_finds$identified_rank[all_finds$identified_rank %in% c("genus","subgenus") & new_rank=="species"] <- "species";
+#all_finds[all_finds$occurrence_no==339345,]
+if (species_only)	{
+#		xxx <- (1:nrow(all_finds))[all_finds$identified_rank %in% c("species","subspecies")]
+	desired_finds <- all_finds[all_finds$identified_rank %in% c("species","subspecies"),];
+	desired_finds <- subset(desired_finds,desired_finds$genus_no>0);
+#		desired_finds <- rbind(subset(all_finds,all_finds$identified_rank=="species"),subset(all_finds,all_finds$identified_rank=="subspecies"))
+	}	else	{
+	desired_finds <- all_finds;
+	}
+if (nrow(desired_finds)==0)	return(desired_finds);
+noccr <- nrow(desired_finds);
+print("Cleaning misentered taxonomic uncertainties.")
+taxon_names <- desired_finds$identified_name[desired_finds$identified_rank %in% c("species","subspecies")];
+#for (tn in 1:length(taxon_names))	taxon_names[tn] <- repair_misentered_uncertain_species(taxon_names[tn]);
+desired_finds$identified_name[desired_finds$identified_rank %in% c("species","subspecies")] <- unlist(pbapply::pbsapply(taxon_names,repair_misentered_uncertain_species));
+
+print("Flagging uncertain taxonomic assignments.");
+taxon_names <- desired_finds$identified_name[desired_finds$identified_rank %in% c("species","subspecies")];
+desired_finds$flags[desired_finds$identified_rank %in% c("species","subspecies")] <- pbapply::pbsapply(taxon_names,identify_taxonomic_uncertainty);
+#flag_dummy <- c();
+#for (tn in 1:sum(desired_finds$identified_rank %in% c("species","subspecies")))	flag_dummy <- c(flag_dummy,identify_taxonomic_uncertainty(taxon_name=taxon_names[tn]));
+# desired_finds$collection_no[tn] WORKING HERE!
+#taxon_names <- desired_finds$identified_name;
+#for (tn in 1:length(taxon_names))	desired_finds$flags[tn] <- identify_taxonomic_uncertainty(taxon_name=taxon_names[tn]);
+if (clean_entered_taxa)	{
+	print("Cleaning entered names...")
+	cleaned_names <- pbapply::pbsapply(as.character(desired_finds$identified_name),mundify_taxon_names);
+	desired_finds$identified_name <- cleaned_names;
+	}	# removes tags such as "cf.", "?", "n. sp." from entered names
+
+if (species_only)	{
+	entered_species <- sort(c((1:noccr)[desired_finds$accepted_rank=="species"],(1:noccr)[desired_finds$accepted_rank=="subspecies"]));
+	unentered_species <- (1:noccr)[!(1:noccr) %in% entered_species];
+	desired_finds$accepted_name[unentered_species] <- desired_finds$identified_name[unentered_species];
+	noccr <- nrow(desired_finds);
+	}
+print("Cleaning accepted names...");
+#cleaned_names <- vector(length=nfinds);
+#for (nf in 1:nfinds)	cleaned_names[nf] <- mundify_taxon_names(as.character(desired_finds$accepted_name[nf]));
+#mundify_taxon_names("Hysterolites (<n. subgen.>) arduennensis")
+cleaned_names <- pbapply::pbsapply(as.character(desired_finds$accepted_name),mundify_taxon_names);
+desired_finds$accepted_name <- cleaned_names;
+
+# make sure that type subgenera are consistently Lophospira (Lophospira)
+genus_name <- sort(unique(desired_finds$genus[desired_finds$genus!=""]));
+ngen <- length(genus_name);
+print("Separating subgenera.")
+genus_subgenus <- base::t(pbapply::pbsapply(genus_name,divido_subgenus_names_from_genus_names));
+subgenera <- genus_subgenus[genus_subgenus[,2]!="",];
+s_g <- nrow(subgenera);
+if (is.null(s_g))	{
+	if (length(subgenera)==2)	{
+		subgenera <- matrix(data=subgenera,nrow=1,ncol=2);
+		s_g <- 1;
+		} else	{
+		subgenera <- matrix(data=0,nrow=0,ncol=2);
+		s_g <- 0;
+		}
+	}
+type_subgenus <- subgenera[subgenera[,2]==subgenera[,1],];
+# first do non-type subgenera (e.g., Lophospira (Ruedemannia))
+nontype_subgenus <- subgenera[subgenera[,2]!=subgenera[,1],];
+nt_s_g <- nrow(nontype_subgenus);
+if (is.null(nt_s_g))	{
+	if (length(nontype_subgenus)==2)	{
+		nt_s_g <- 1;
+		nontype_subgenus <- matrix(data=nontype_subgenus,nrow=1,ncol=2);
+		} else	{
+		nontype_subgenus <- matrix(data=0,nrow=0,ncol=2);
+		nt_s_g <- 0;
+		}
+	}
+sg <- 0;
+while (sg < nt_s_g)	{
+	sg <- sg+1;
+	if (!is.na(match(nontype_subgenus[sg,2],genus_subgenus[,1])))	{
+#		doubly_ranked <- genus_name[match(nontype_subgenus[sg,2],genus_subgenus[,1])]
+#		print(nontype_subgenus[sg,2]);
+		doubly_ranked <- paste(nontype_subgenus[sg,1]," (",nontype_subgenus[sg,2],")",sep="");
+		subgenus_finds <- (1:noccr)[desired_finds$genus==doubly_ranked];
+		desired_finds$genus[subgenus_finds] <- nontype_subgenus[sg,2];
+		nn <- match(nontype_subgenus[sg,2],genus_name);
+		if (is.na(nn))	{
+			# if name never is used alone, then add it to the genus lists
+			nn <- match(nontype_subgenus[sg,2],genus_subgenus[,1]);
+			genus_name <- insert_cell_into_vector_x(x=genus_name,new_value=as.character(genus_subgenus[nn,1]),cell_no=nn);
+			genus_subgenus <- insert_row_into_matrix_x(x=genus_subgenus,new_row=c(genus_subgenus[nn,1],""),row_no=nn);
+			}
+		}
+	}
+
+#	desired_finds[desired_finds$identified_name %in% "Phacops (Reedops) bronni",]
+# now do type subgenera (e.g., Lophospira (Lophospira))
+t_s_g <- nrow(type_subgenus);
+if (is.null(t_s_g))	{
+	if (length(type_subgenus)==2)	{
+		t_s_g <- 1;
+		type_subgenus <- matrix(data=type_subgenus,nrow=1,ncol=2)
+		} else	{
+		t_s_g <- 0;
+		}
+	}
+sg <- 0;
+while (sg < t_s_g)	{
+	sg <- sg+1;
+	subgenus_finds <- (1:noccr)[desired_finds$genus==type_subgenus[sg,1]];
+	desired_finds$genus[subgenus_finds] <- paste(type_subgenus[sg,1]," (",type_subgenus[sg,2],")",sep="");
+	}
+#	desired_finds[desired_finds$identified_name %in% "Phacops (Reedops) bronni",]
+
+# now, make sure that subgenera are not listed in two different genera
+genus_name <- sort(unique(desired_finds$genus[desired_finds$genus!=""]));
+ngen <- length(genus_name);
+genus_subgenus <- base::t(sapply(genus_name,divido_subgenus_names_from_genus_names));
+subgenera <- genus_subgenus[genus_subgenus[,2]!="",];
+if (is.null(nrow(subgenera)))	{
+	if (length(subgenera)==2)	{
+		subgenera <- matrix(data=subgenera,nrow=1,ncol=2);
+		} else	{
+		subgenera <- matrix(data=0,nrow=1,ncol=2);
+		}
+	}
+nontype_subgenus <- subgenera[subgenera[,2]!=subgenera[,1],];
+if (is.null(nrow(nontype_subgenus)))	{
+	if (length(nontype_subgenus)==2)	{
+		nontype_subgenus <- matrix(data=nontype_subgenus,nrow=1,ncol=2);
+		} else	{
+		nontype_subgenus <- matrix(0,0,2);
+		}
+	}
+if (nrow(nontype_subgenus)>0)	nontype_subgenus <- nontype_subgenus[nontype_subgenus[,2]!="",];
+nt_s_g <- nrow(nontype_subgenus);
+if (is.null(nt_s_g))	{
+	if (length(nontype_subgenus)==2)	{
+		nt_s_g <- 1;
+		nontype_subgenus <- matrix(data=nontype_subgenus,nrow=1,ncol=2)
+		} else	{
+		nt_s_g <- 0;
+		}
+	}
+sg <- 0;
+while (sg < nt_s_g)	{
+	sg <- sg+1;
+	if (sum(nontype_subgenus[sg,2]==nontype_subgenus[,2])>1)	{
+		sgs <- (1:nt_s_g)[nontype_subgenus[,2] %in% nontype_subgenus[sg,2]]
+		ssg <- 1;
+		senior_entry <- paste(nontype_subgenus[sgs[1],1]," (",nontype_subgenus[sgs[1],2],")",sep="");
+		while (ssg < sum(nontype_subgenus[sg,2]==nontype_subgenus[,2]))	{
+			ssg <- ssg+1;
+			double_entry <- paste(nontype_subgenus[sgs[ssg],1]," (",nontype_subgenus[sgs[ssg],2],")",sep="");
+			desired_finds$genus[(1:noccr)[desired_finds$genus==double_entry]] <- senior_entry;
+			}
+		}
+	}
+
+taxon_name <- desired_finds$accepted_name;
+species_epithet <- sapply(taxon_name,divido_species_epithets);
+desired_finds$accepted_name_orig <- desired_finds$accepted_name;
+# make sure that identified species are accepted
+paste("Accepting species identifications...");
+redo_these <- desired_finds[desired_finds$identified_rank %in% c("species","subspecies") & desired_finds$accepted_rank %in% c("genus","subgenus"),];
+redo_these$accepted_name <- paste(redo_these$genus,pbapply::pbsapply(redo_these$identified_name,divido_species_epithets));
+redo_these$accepted_rank <- redo_these$identified_rank;
+desired_finds[desired_finds$occurrence_no %in% redo_these$occurrence_no,] <- redo_these;
+#desired_finds$accepted_name <- paste(desired_finds$genus,species_epithet);
+desired_finds <- expello_na_from_matrix(desired_finds,replacement="");
+
+for (cn in 1:ncol(desired_finds))	{
+	old_info <- desired_finds[,cn];
+	cnm <- strsplit(x=colnames(desired_finds)[cn],split="_")[[1]];
+	if(cnm[length(cnm)] %in% paleodb_numeric_fields)	{
+		old_info[old_info %in% missing_data_assignment] <- 0;
+		desired_finds[,cn] <- as.numeric(old_info);
+		} else	{
+		desired_finds[,cn] <- as.character(old_info);
+		}
+	}
+
+return(desired_finds);
+}
+
 # get occurrences modified after a certain date. If the date is blank, then it will just be the last 5 years.
-update_occurrence_data <- function(taxa=c("Life","Ichnofossils"),onset="Archean",end="Holocene",basic_environments="terr,marine,unknown",occs_modified_after="1900-01-01",species_only=TRUE,clean_entered_taxa=TRUE,directory="",save_files=TRUE,output_type=".csv"){
+# modified 2025-08-11: Now corrects PBDB incorrectly stating that many identified species are identified as genera
+update_occurrence_data <- function(taxa=c(),onset="Archean",end="Holocene",basic_environments="terr,marine,unknown",occs_modified_after="1900-01-01",species_only=TRUE,clean_entered_taxa=TRUE,directory="",save_files=TRUE,output_type=".csv"){
 if (occs_modified_after=="1900-01-01")
 	occs_modified_after <- strsplit(as.character(Sys.time()-5*366*24*60*60),split=" ")[[1]][1];
-taxa <- paste(taxa, collapse = ",");
-if (!is.na(match("terrestrial",basic_environments)))
-	basic_environments[match("terrestrial",basic_environments)] <- "terr";
+#if (!is.na(match("terrestrial",basic_environments)))
+#	basic_environments[match("terrestrial",basic_environments)] <- "terr";
 basic_environments <- paste(basic_environments,collapse=",");
-taxa <- gsub(" ","%20",taxa);
-http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&occs_modified_after=",occs_modified_after,"&show=refattr,classext,rem,entname,abund,crmod&limit=all",sep = "");
+basic_environments <- gsub("terrestrial","terr",basic_environments);
+if (!is.null(taxa))	{
+	taxa <- paste(taxa, collapse = ",");
+	taxa <- gsub(" ","%20",taxa);
+	if (onset!="Archean" || !end %in% c("Phanerozoic","Cenozoic","Neogene","Holocene"))	{
+		http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&occs_modified_after=",occs_modified_after,"&show=refattr,classext,rem,entname,abund,crmod&limit=all",sep = "");
+		} else	{
+		http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&envtype=",basic_environments,"&occs_modified_after=",occs_modified_after,"&show=refattr,classext,rem,entname,abund,crmod&limit=all",sep = "");
+		}
+	} else	{
+	if (onset!="Archean" || !end %in% c("Phanerozoic","Cenozoic","Neogene","Holocene"))	{
+		http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?all_records&interval=",onset,",",end,"&envtype=",basic_environments,"&occs_modified_after=",occs_modified_after,"&show=refattr,classext,rem,entname,abund,crmod&limit=all",sep = "");
+		} else	{
+		http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?all_records&envtype=",basic_environments,"&occs_modified_after=",occs_modified_after,"&show=refattr,classext,rem,entname,abund,crmod&limit=all",sep = "");
+		}
+	}
+#fetch <- GET(http,config=set_cookies(session_id=session_id),verbose());
+#fetch <- GET(http,authenticate("username","password"));
+#fetch <- getURL(http,curl = getCurlHandle(cookies=session_id, verbose = TRUE));
+#all_finds <- read.csv(fetch,header=TRUE,stringsAsFactors=hell_no,encoding="UTF-8");
 all_finds <- read.csv(http,header=TRUE,stringsAsFactors=hell_no,encoding="UTF-8");
+#fetch <- RCurl::getURL(http);
 fetched <- gsub("\"","",simplify2array(strsplit(RCurl::getURL(http),"\r\n"))[,1]);
 if (!is.na(match("THIS REQUEST RETURNED NO RECORDS",fetched)))	{
 	return(dummy_finds);
@@ -548,6 +796,16 @@ if (!is.na(match("THIS REQUEST RETURNED NO RECORDS",fetched)))	{
 #		all_finds <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=hell_no);
 #		}
 	all_finds <- expello_na_from_matrix(data=all_finds,replacement = "");
+	all_finds <- expello_na_from_matrix(data=all_finds,replacement = "");
+	ided_names <- all_finds$identified_name;
+	print("Redoing identified ranks to catch species that the PBDB calls genera")
+	ided_names <- pbapply::pbsapply(ided_names,mundify_taxon_names);
+	nfinds <- nrow(all_finds);
+	nsfinds <- (1:nfinds)[all_finds$identified_rank %in% c("genus","subgenus")];
+
+	revised_ided_rank <- pbapply::pbsapply(all_finds$identified_name[nsfinds],is.species);
+	all_finds$identified_rank[nsfinds[revised_ided_rank]] <- "species";
+
 	if (species_only)	{
 		xxx <- (1:nrow(all_finds))[all_finds$identified_rank %in% c("species","subspecies")]
 		desired_finds <- all_finds[xxx,];
@@ -933,9 +1191,9 @@ if (!is.null(occurrences_compendium))	{
 	named_rock_units <- collection_compendium$member;
 	print("cleaning members...");
 	collection_compendium$member <- pbapply::pbsapply(named_rock_units,mundify_rock_unit_names);
-	named_rock_units <- collection_compendium$stratgroup;
+	named_rock_units <- collection_compendium$geological_group;
 	print("cleaning groups...");
-	collection_compendium$stratgroup <- pbapply::pbsapply(named_rock_units,mundify_rock_unit_names);
+	collection_compendium$geological_group <- pbapply::pbsapply(named_rock_units,mundify_rock_unit_names);
 	zone <- collection_compendium$zone[collection_compendium$zone!=""];
 	print("cleaning zones...");
 	collection_compendium$zone[collection_compendium$zone!=""] <- pbapply::pbsapply(zone,mundus_zone);
@@ -1007,8 +1265,8 @@ named_rock_units <- collection_compendium$formation;
 collection_compendium$formation <- sapply(named_rock_units,mundify_rock_unit_names);
 named_rock_units <- collection_compendium$member;
 collection_compendium$member <- sapply(named_rock_units,mundify_rock_unit_names);
-named_rock_units <- collection_compendium$stratgroup;
-collection_compendium$stratgroup <- sapply(named_rock_units,mundify_rock_unit_names);
+named_rock_units <- collection_compendium$geological_group;
+collection_compendium$geological_group <- sapply(named_rock_units,mundify_rock_unit_names);
 zone <- collection_compendium$zone[collection_compendium$zone!=""];
 collection_compendium$zone[collection_compendium$zone!=""] <- sapply(zone,mundus_zone);
 web_text <- collection_compendium$collection_name;
@@ -1191,7 +1449,7 @@ accersi_abundance_data <- function(taxa,onset="Cambrian",end="Holocene",realm="m
 taxa <- paste(taxa, collapse = ",")
 realm <- paste(realm, collapse=",")
 if (save_collections)	{
-	http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&envtype=",realm,"&interval=",onset,",",end,"&show=abund,pres,coll,coords,loc,paleoloc,strat,stratext,lith,lithext,env,geo,ref,ent,entname,crmod&limit=all",sep = "")
+	http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&envtype=",realm,"&interval=",onset,",",end,"&show=abund,pres,coll,coords,loc,paleoloc,stratext,lithext,env,geo,ref,ent,entname,crmod&limit=all",sep = "")
 	}	else	{
 	http <- paste("https://paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&envtype=",realm,"&interval=",onset,",",end,"&show=abund,coll&limit=all",sep = "")
 	}
@@ -1227,9 +1485,9 @@ if (save_collections)	{
 	named_rock_unit <- coll_info$formation
 	xxx <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE)
 	coll_info$formation <- xxx
-	named_rock_unit <- coll_info$stratgroup
+	named_rock_unit <- coll_info$geological_group
 	xxx <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE)
-	coll_info$stratgroup <- xxx
+	coll_info$geological_group <- xxx
 	named_rock_unit <- coll_info$member
 	xxx <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE)
 	coll_info$member <- xxx
@@ -1268,13 +1526,13 @@ taxa <- gsub(" ","%20",taxa);
 if (!is.na(match("terrestrial",tolower(basic_environments))))
 	basic_environments[match("terrestrial",tolower(basic_environments))] <- "terr";
 basic_environments <- paste(basic_environments,collapse=",");
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
-#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&show=loc,paleoloc,strat,stratext,refattr,entname,lith,env,crmod",sep="");
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&show=loc,paleoloc,stratext,refattr,entname,lith,env,crmod",sep="");
 collections <- read.csv(http,header=TRUE,stringsAsFactors=hell_no,encoding="UTF-8");
 if (!is.null(collections$formation.1))	{
 	collections$formation.1 <- NULL;
 	collections$member.1 <- NULL;
-	collections$stratgroup.1 <- NULL;
+	collections$geological_group.1 <- NULL;
 	}
 if (!is.null(collections$lithology1.1))	{
 	collections$lithdescript.1 <- collections$lithology1.1 <- collections$lithadj1.1 <- collections$lithification1.1 <- collections$minor_lithology1.1 <- collections$fossilsfrom1.1 <- NULL;
@@ -1316,11 +1574,11 @@ if (length(geographic_orphans)>0 & fix_gplates) {
 	collections[leelas,mutants] <- revised_paleogeography;
 	}
 # clean up rock unit names
-#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$stratgroup,delete_rock_type=TRUE)
-named_rock_unit <- collections$stratgroup;
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
+named_rock_unit <- collections$geological_group;
 print("Cleaning Groups.")
 clean_groups <- pbapply::pbsapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
-collections$stratgroup <- clean_groups;
+collections$geological_group <- clean_groups;
 named_rock_unit <- collections$formation;
 print("Cleaning Formations.")
 clean_formations <- pbapply::pbsapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
@@ -1422,24 +1680,131 @@ if (save_files)	{
 return(collections)
 }
 
+accersi_collection_data_from_dataframe <- function(collections,standardize_members=F) {
+if (!is.null(collections$formation.1))	{
+	collections$formation.1 <- NULL;
+	collections$member.1 <- NULL;
+	collections$geological_group.1 <- NULL;
+	}
+if (!is.null(collections$lithology1.1))	{
+	collections$lithdescript.1 <- collections$lithology1.1 <- collections$lithadj1.1 <- collections$lithification1.1 <- collections$minor_lithology1.1 <- collections$fossilsfrom1.1 <- NULL;
+	collections$lithology2.1 <- collections$lithadj2.1 <- collections$lithification2.1 <- collections$minor_lithology2.1 <- collections$fossilsfrom2.1 <- NULL;
+	}
+#fetch <- RCurl::getURL(http);
+#collections <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=hell_no);
+#	http <- paste("https://www.paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&interval=",onset,",",end,",&show=full,etbasis,strat,lith,env,timebins,timecompare,ref,ent,entname,crmod",sep="")
+
+collections <- put_pbdb_dataframes_into_proper_type(paleodb_data=collections);
+ttl_coll <- nrow(collections);
+geographic_orphans <- collections$collection_no[is.na(collections$paleolat)];
+geographic_orphans <- sort(unique(c(geographic_orphans,collections$collection_no[collections$geoplate==0])));
+#coll_no <- coll_no[1:5]
+# fix_gplates added 31-12-2023 to minimize PBDB lookups: we'll fix paleocoordinates using new code later this later
+# clean up rock unit names
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
+named_rock_unit <- collections$geological_group;
+print("Cleaning Groups.")
+clean_groups <- pbapply::pbsapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
+collections$geological_group <- clean_groups;
+named_rock_unit <- collections$formation;
+print("Cleaning Formations.")
+clean_formations <- pbapply::pbsapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
+collections$formation <- clean_formations;
+print("Cleaning Members.")
+named_rock_unit <- collections$member;
+clean_members <- pbapply::pbsapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE)
+collections$member <- clean_members;
+collections$collection_subset <- expello_na_from_vector(collections$collection_subset,"")
+# standardize member/formation ranks if possible
+if (standardize_members)	{
+	formations <- sort(unique(clean_formations))
+	members <- sort(unique(clean_members))
+	confusion <- sum(members %in% formations)
+	if (confusion>0)	{
+		member_or_formation <- members[(1:length(members))[members %in% formations]]
+		for (c in 1:confusion)	{
+			# Use latest opinion.  If latest opinion is "member," then reassign
+			#	all collections to the latest formation/member combo
+			# If the latest opinion is tied, then go with majority rule.  If that
+			#	is tied, too, then just make the damned thing a formation....
+			if (member_or_formation[c]!="")	{
+				vote_formation <- (1:ttl_coll)[clean_formations %in% member_or_formation[c]]
+				vote_member <- (1:ttl_coll)[clean_members %in% member_or_formation[c]]
+				if (max(collections$ref_pubyr[vote_formation]) > max(collections$ref_pubyr[vote_member]))	{
+					### elevate member to formation in appropriate collections
+					collections$formation[vote_member] <- member_or_formation[c]
+					collections$member[vote_member] <- ""
+					}	else if (max(collections$ref_pubyr[vote_formation]) < max(collections$ref_pubyr[vote_member]))	{
+#					for (cc in 1:length(vote_formation))	{
+					## get the latest opinion, and assign the rock unit as a member to that formation
+					latest_opinion <- vote_member[match(max(collections$ref_pubyr[vote_member]),collections$ref_pubyr[vote_member])]
+					collections$formation[vote_formation] <- collections$formation[latest_opinion]
+					collections$member[vote_formation] <- member_or_formation[c]
+#						}
+					} else if (length(vote_formation) < length(vote_member))	{
+					## get the latest opinion, and assign the rock unit as a member to that formation
+					latest_opinion <- vote_member[match(max(collections$ref_pubyr[vote_member]),collections$ref_pubyr[vote_member])]
+					collections$formation[vote_formation] <- collections$formation[latest_opinion]
+					collections$member[vote_formation] <- member_or_formation[c]
+					} else	{
+					collections$formation[vote_member] <- member_or_formation[c]
+					collections$member[vote_member] <- ""
+					}
+				}
+			}
+		}
+	}
+
+## clean zones of question marks, aff.s, etc.
+collections_w_zones <- (1:ttl_coll)[collections$zone!=""];
+cwz <- length(collections_w_zones);
+collections$zone <- as.character(collections$zone);
+#zones <- as.character(collections$zone[collections_w_zones]);
+#zz <- c();
+#for (z in 1:length(zones))	{
+#	print(c(zones[z],mundus_zone(zone=zones[z])))
+#	zz <- c(zz,mundus_zone(zones[z]));
+#	}
+print("Cleaning Zones")
+zone <- as.character(collections$zone[collections_w_zones]);
+collections$zone[collections_w_zones] <- pbapply::pbsapply(zone,mundus_zone);
+#sort(unique(collections$zone[collections_w_zones]))
+
+#collections <- expello_na_from_matrix(collections,replacement = "");
+collections$late_interval[collections$late_interval==""] <- collections$early_interval[collections$late_interval==""];
+return(collections)
+}
+
 #colls_modified_after=2021-01-01; basic_environments=c("marine","unknown");
 #taxa="Life";onset="Archean";end="Cenozoic";basic_environments="terr,marine,unknown";colls_modified_after="1900-01-01";paleogeography="gplates";standardize_members=F;directory="";save_files=TRUE;species_only=F;output_type=".csv";
 # 2021-12-15: now cleans rock names;
-update_collection_data <- function(taxa=c("Life","Ichnofossils"),onset="Archean",end="Cenozoic",basic_environments="terr,marine,unknown",colls_modified_after="1900-01-01",paleogeography="gplates",standardize_members=F,directory="",save_files=TRUE,fix_gplates=FALSE,species_only=FALSE,output_type=".csv")	{
-taxa <- paste(taxa, collapse = ",");
-taxa <- gsub(" ","%20",taxa);
+update_collection_data <- function(taxa=c(),onset="Archean",end="Cenozoic",basic_environments="terr,marine,unknown",colls_modified_after="1900-01-01",paleogeography="gplates",standardize_members=F,directory="",save_files=TRUE,fix_gplates=FALSE,species_only=FALSE,output_type=".csv")	{
 if (!is.na(match("terrestrial",basic_environments)))
 	basic_environments[match("terrestrial",basic_environments)] <- "terr";
 basic_environments <- paste(basic_environments,collapse=",");
 #if (colls_modified_after=="1900-01-01" || colls_modified_after==as.Date("0000-00-00"))
 if (colls_modified_after=="1900-01-01")
 	colls_modified_after <- strsplit(as.character(Sys.time()-5*366*24*60*60),split=" ")[[1]][1];
-http <- paste("https://www.paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&colls_modified_after=",colls_modified_after,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+if (!is.null(taxa))	{
+	taxa <- paste(taxa, collapse = ",");
+	taxa <- gsub(" ","%20",taxa);
+	if (onset!="Archean" || !end %in% c("Phanerozoic","Cenozoic","Neogene","Holocene"))	{
+		http <- paste("https://www.paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&colls_modified_after=",as.character(colls_modified_after),"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+		} else	{
+		http <- paste("https://www.paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&envtype=",basic_environments,"&colls_modified_after=",as.character(colls_modified_after),"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+		}
+	} else	{
+	if (onset!="Archean" || !end %in% c("Phanerozoic","Cenozoic","Neogene","Holocene"))	{
+		http <- paste("https://www.paleobiodb.org/data1.2/colls/list.csv?all_records&interval=",onset,",",end,"&envtype=",basic_environments,"&colls_modified_after=",as.character(colls_modified_after),"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+		} else	{
+		http <- paste("https://www.paleobiodb.org/data1.2/colls/list.csv?all_records&envtype=",basic_environments,"&colls_modified_after=",as.character(colls_modified_after),"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+		}
+	}
 collections_update <- read.csv(http,header=TRUE,stringsAsFactors=hell_no,encoding="UTF-8");
 if (!is.null(collections_update$formation.1))	{
 	collections_update$formation.1 <- NULL;
 	collections_update$member.1 <- NULL;
-	collections_update$stratgroup.1 <- NULL;
+	collections_update$geological_group.1 <- NULL;
 	}
 if (!is.null(collections_update$lithology1.1))	{
 	collections_update$lithdescript.1 <- collections_update$lithology1.1 <- collections_update$lithadj1.1 <- collections_update$lithification1.1 <- collections_update$minor_lithology1.1 <- collections_update$fossilsfrom1.1 <- NULL;
@@ -1481,8 +1846,8 @@ print("Cleaning Members");
 named_rock_unit <- collections_update$member[collections_update$member!=""];
 if (length(named_rock_unit)>0)	collections_update$member[collections_update$member!=""] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names);
 print("Cleaning Groups");
-named_rock_unit <- collections_update$stratgroup[collections_update$stratgroup!=""];
-if (length(named_rock_unit)>0)	collections_update$stratgroup[collections_update$stratgroup!=""] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names);
+named_rock_unit <- collections_update$geological_group[collections_update$geological_group!=""];
+if (length(named_rock_unit)>0)	collections_update$geological_group[collections_update$geological_group!=""] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names);
 
 #collections <- expello_na_from_matrix(collections,replacement = "");
 collections_update$late_interval[collections_update$late_interval==""] <- collections_update$early_interval[collections_update$late_interval==""];
@@ -1505,35 +1870,42 @@ return(collections_update);
 }
 
 accersi_paleogeographic_data_for_all_collections <- function()	{
-http <- "https://paleobiodb.org/data1.2/colls/list.csv?base_name=Life,Ichnofossils&pgm=gplates,scotese,seton&show=paleoloc,crmod";
+http <- "https://paleobiodb.org/data1.2/colls/list.csv?all_records&pgm=gplates,scotese,seton&show=paleoloc,crmod";
 fetch <- RCurl::getURL(http);
 collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
 return(collection);
 }
 
-accersi_paleogeographic_data_for_one_collection_no <- function(coll_id)	{
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_id,"&pgm=gplates,scotese,seton&show=paleoloc,crmod",sep="");
+accersi_paleogeographic_data_for_one_collection_no <- function(coll_no)	{
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_no,"&pgm=gplates,scotese,seton&show=paleoloc,crmod",sep="");
 #http <- "https://paleobiodb.org/data1.2/colls/list.csv?base_name=Life,Ichnofossils&pgm=gplates,scotese,seton&show=paleoloc,crmod";
 fetch <- RCurl::getURL(http);
-collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
+if (gsub("THIS REQUEST RETURNED NO RECORDS","",fetch)==fetch)	{
+	collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
+	} else	{
+	http <- "https://paleobiodb.org/data1.2/colls/list.csv?coll_id=1&pgm=gplates,scotese,seton&show=paleoloc,crmod";
+	fetch <- RCurl::getURL(http);
+	collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
+	collection$collection_no <- coll_no;
+	}
 return(collection);
 }
 
 # get collections from a certain span of time that include a particular taxon or set of taxa
 # coll_id <- collection_nos[1]
 accersi_data_for_multiple_collections <- function(coll_id,fix_gplates=FALSE) {
-#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
 coll_ids <- paste(coll_id,sep=",");
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_ids,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_ids,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
 fetch <- RCurl::getURL(http);
 collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
 
 # clean up rock unit names
-#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$stratgroup,delete_rock_type=TRUE)
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
 collection <- expello_na_from_vector(collection);
 
-if (collection$stratgroup!="")
-	collection$stratgroup <- mundify_rock_unit_names(named_rock_unit=as.character(collection$stratgroup),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
+if (collection$geological_group!="")
+	collection$geological_group <- mundify_rock_unit_names(named_rock_unit=as.character(collection$geological_group),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 if (collection$formation!="")
 	collection$formation <- mundify_rock_unit_names(named_rock_unit=as.character(collection$formation),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 if (collection$member!="")
@@ -1546,7 +1918,7 @@ if (collection$zone!="")
 if (!is.null(collection$formation.1))	{
 	collection$formation.1 <- NULL;
 	collection$member.1 <- NULL;
-	collection$stratgroup.1 <- NULL;
+	collection$geological_group.1 <- NULL;
 	}
 
 if (!is.null(collection$lithology1.1))	{
@@ -1564,17 +1936,17 @@ return(collection)
 }
 
 accersi_data_for_one_collection <- function(coll_id,fix_gplates=FALSE) {
-#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_id,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_id,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
 fetch <- RCurl::getURL(http);
 collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
 
 # clean up rock unit names
-#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$stratgroup,delete_rock_type=TRUE)
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
 collection <- expello_na_from_vector(collection);
 
-if (collection$stratgroup!="")
-	collection$stratgroup <- mundify_rock_unit_names(named_rock_unit=as.character(collection$stratgroup),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
+if (collection$geological_group!="")
+	collection$geological_group <- mundify_rock_unit_names(named_rock_unit=as.character(collection$geological_group),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 if (collection$formation!="")
 	collection$formation <- mundify_rock_unit_names(named_rock_unit=as.character(collection$formation),dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 if (collection$member!="")
@@ -1587,7 +1959,7 @@ if (collection$zone!="")
 if (!is.null(collection$formation.1))	{
 	collection$formation.1 <- NULL;
 	collection$member.1 <- NULL;
-	collection$stratgroup.1 <- NULL;
+	collection$geological_group.1 <- NULL;
 	}
 
 if (!is.null(collection$lithology1.1))	{
@@ -1620,9 +1992,9 @@ if (sum(stupid_exponents=="+")==1 && sum(stupid_exponents=="e")==1)	{
 	collection_no <- paste(stupid_exponents2,collapse="");
 	}
 
-#httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
-#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
-httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
 coll_info <- read.csv(httpC, header = TRUE, stringsAsFactors=hell_no);
 options(warn=0);
 coll_info <- put_pbdb_dataframes_into_proper_type(coll_info);
@@ -1641,7 +2013,7 @@ if (print_progress)	{
 	}
 for (nc in 1:ncol(pbdb_site_data))	pbdb_site_data[,nc] <- as.vector(unlist(pbdb_site_data[,nc]));
 if (!is.null(pbdb_site_data$formation.1))
-	pbdb_site_data$formation.1 <- pbdb_site_data$stratgroup.1 <- pbdb_site_data$member.1 <- NULL;
+	pbdb_site_data$formation.1 <- pbdb_site_data$geological_group.1 <- pbdb_site_data$member.1 <- NULL;
 if (!is.null(pbdb_site_data$lithdescript.1))
 	pbdb_site_data$lithdescript.1 <- pbdb_site_data$lithology1.1 <- pbdb_site_data$lithadj1.1 <- pbdb_site_data$lithification1.1 <- pbdb_site_data$minor_lithology1.1 <- pbdb_site_data$fossilsfrom1.1 <- pbdb_site_data$lithology2.1 <- pbdb_site_data$lithadj2.1 <- pbdb_site_data$lithification2.1 <- pbdb_site_data$minor_lithology2.1 <- pbdb_site_data$fossilsfrom2.1 <- NULL;
 #pbdb_site_data$created <- as.Date.numeric(as.numeric(pbdb_site_data$created),origin = "1970-01-01");
@@ -1661,8 +2033,8 @@ return(site_reboot);
 }
 
 accersi_geoplate_data <- function(coll_id)	{
-#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_id,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+#http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&envtype=",basic_environments,"&pgm=",paleogeography,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?coll_id=",coll_id,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,secref,refattr,ent,entname,crmod",sep="");
 fetch <- RCurl::getURL(http);
 collection <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
 options(warn=0);
@@ -1866,16 +2238,16 @@ return(this_unit);
 # get information about rock units within a certain interval of time.
 accersi_rock_unit_data_for_taxa <- function(taxa,onset="Cambrian",end="Holocene",standardize_members=TRUE,directory="",save_files=TRUE,output_type=".csv") {
 taxa <- paste(taxa, collapse = ",");
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&show=loc,paleoloc,strat,stratext,refattr",sep="")
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",taxa,"&interval=",onset,",",end,"&show=loc,paleoloc,stratext,refattr",sep="")
 fetch <- RCurl::getURL(http);
 collections <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8");
 ttl_coll <- nrow(collections);
 
 # clean up rock unit names
-#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$stratgroup,delete_rock_type=TRUE)
-named_rock_unit <- collections$stratgroup
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
+named_rock_unit <- collections$geological_group
 clean_groups <- sapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
-collections$stratgroup <- clean_groups
+collections$geological_group <- clean_groups
 named_rock_unit <- collections$formation;
 clean_formations <- sapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 collections$formation <- clean_formations
@@ -1922,7 +2294,7 @@ if (standardize_members)	{
 			}
 		}
 	}
-keep <- match(c("formation","member","stratgroup","zone","early_interval","late_interval","max_ma","min_ma"),colnames(collections))
+keep <- match(c("formation","member","geological_group","zone","early_interval","late_interval","max_ma","min_ma"),colnames(collections))
 remove <- (1:ncol(collections))[!(1:ncol(collections)) %in% keep]
 rock_info <- collections;
 rock_info <- rock_info[,-remove];
@@ -1951,10 +2323,10 @@ accersi_rock_unit_data_from_paleodb_collections <- function(paleodb_collections,
 ttl_coll <- nrow(paleodb_collections);
 
 # clean up rock unit names
-#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$stratgroup,delete_rock_type=TRUE)
-named_rock_unit <- paleodb_collections$stratgroup;
+#clean_groups <- mundify_rock_unit_names(named_rock_unit=collections$geological_group,delete_rock_type=TRUE)
+named_rock_unit <- paleodb_collections$geological_group;
 clean_groups <- sapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
-paleodb_collections$stratgroup <- clean_groups;
+paleodb_collections$geological_group <- clean_groups;
 named_rock_unit <- paleodb_collections$formation;
 clean_formations <- sapply(as.character(named_rock_unit),mundify_rock_unit_names,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE);
 paleodb_collections$formation <- clean_formations;
@@ -2002,7 +2374,7 @@ if (standardize_members)	{
 		}
 	}
 
-keep <- match(c("formation","member","stratgroup","zone","early_interval","late_interval","max_ma","min_ma"),colnames(paleodb_collections));
+keep <- match(c("formation","member","geological_group","zone","early_interval","late_interval","max_ma","min_ma"),colnames(paleodb_collections));
 if (!is.null(paleodb_collections$ma_lb))	{
 	keep <- c(keep,match(c("ma_lb","ma_ub"),colnames(paleodb_collections)));
 	}
@@ -2290,7 +2662,7 @@ accersi_unique_rock_units_for_higher_taxon <- function(higher_taxon,onset="Cambr
 #taxon_name <- taxon_list
 #taxon_list <- sapply(taxon_name,mundify_taxon_names)
 #ntaxa <- length(taxon_name)
-http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",higher_taxon,"&interval=",onset,",",end,"&show=loc,paleoloc,strat,stratext,refattr",sep="")
+http <- paste("https://paleobiodb.org/data1.2/colls/list.csv?base_name=",higher_taxon,"&interval=",onset,",",end,"&show=loc,paleoloc,stratext,refattr",sep="")
 fetch <- RCurl::getURL(http)
 collections <- utils::read.csv(text = fetch, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8")
 #	http <- paste("https://www.paleobiodb.org/data1.2/occs/list.csv?base_name=",taxa,"&interval=",onset,",",end,",&show=full,etbasis,strat,lith,env,timebins,timecompare,ref,ent,entname,crmod",sep="")
@@ -2322,12 +2694,12 @@ xxx <- with_members[with_members %in% without_formations]
 if (length(xxx)>0)
 	rock_units[xxx] <- member_cleaned[xxx]
 xxx <- without_formations[without_formations %in% without_members]
-yyy <- xxx[collections$stratgroup[xxx]!=""]
+yyy <- xxx[collections$geological_group[xxx]!=""]
 for (c in 1:length(yyy))	{
 	if (collections$late_interval[yyy[c]]=="")	{
-		rock_units[yyy[c]] <- paste(collections$stratgroup[yyy[c]]," Group ",collections$early_interval[yyy[c]],sep="")
+		rock_units[yyy[c]] <- paste(collections$geological_group[yyy[c]]," Group ",collections$early_interval[yyy[c]],sep="")
 		} else	{
-		rock_units[yyy[c]] <- paste(collections$stratgroup[yyy[c]]," Group ",collections$early_interval[yyy[c]],"-",collections$late_interval[yyy[c]],sep="")
+		rock_units[yyy[c]] <- paste(collections$geological_group[yyy[c]]," Group ",collections$early_interval[yyy[c]],"-",collections$late_interval[yyy[c]],sep="")
 		}
 	}
 
@@ -2795,7 +3167,7 @@ return(collections_info)
 }
 
 accersi_single_locality_info_old <- function(collection_no)	{
-httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&show=loc,paleoloc,strat,stratext,timebins,timecompare,lith,lithext,env,geo,methods,resgroup,ref,refattr,ent,entname,crmod",sep="");
+httpC <- paste("https://paleobiodb.org/data1.2/colls/list.csv?id=",collection_no,"&show=loc,paleoloc,stratext,timebins,timecompare,lithext,env,geo,methods,resgroup,ref,refattr,ent,entname,crmod",sep="");
 accio <- RCurl::getURL(httpC)
 coll_info <- data.frame(utils::read.csv(text = accio, header = TRUE, stringsAsFactors=FALSE,encoding="UTF-8"))
 coll_info <- expello_na_from_vector(coll_info,"")
@@ -4573,6 +4945,7 @@ for (i in 1:100)	indet_species <- c(indet_species,paste("nov.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("sp. nov.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("indet.",i));
 indet_species <- c(indet_species,"sensu");
+indet_species <- c(indet_species,"spp.");
 species_epithets <- sapply(species_epithets,accersi_embedded_informal_names);
 taxon_names <- taxon_name[!species_epithets %in% indet_species];
 echino_species <- taxon_names <- unique(taxon_names);
@@ -4596,6 +4969,7 @@ informals <- (1:nfinds)[identified_names!=gsub("informal","",identified_names)];
 return(paleodb_finds[!(1:nfinds) %in% informals,]);
 }
 
+# species_name <- "Gobiconodon second species";
 identify_informal_species <- function(species_name)	{
 species_epithet <- divido_species_epithets(species_name);
 indet_species <- c("sp.");
@@ -4608,9 +4982,10 @@ indet_species <- c(indet_species,"n. sp.");
 for (i in 1:100)	indet_species <- c(indet_species,paste("n. sp.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("sp. nov.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("indet.",i));
+indet_species <- c(indet_species,paste(ranking,"species"));
 indet_species <- c(indet_species,"sensu");
 indet_species <- c(indet_species,paste(indet_species,"informal"));
-return(return(species_epithet %in% indet_species));
+return(species_epithet %in% indet_species);
 }
 
 # routine to find and eliminate informal species designations that the PaleoDB considers species IDs
@@ -4625,6 +5000,7 @@ for (i in 1:100)	indet_species <- c(indet_species,paste("sp.",i,sep=""));
 for (i in 1:100)	indet_species <- c(indet_species,paste("nov.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("sp. nov.",i));
 for (i in 1:100)	indet_species <- c(indet_species,paste("indet.",i));
+indet_species <- c(indet_species,"spp.");
 indet_species <- c(indet_species,"sensu");
 species_epithets <- sapply(species_epithets,accersi_embedded_informal_names);
 taxon_names <- taxon_name[!species_epithets %in% indet_species];
@@ -4647,16 +5023,29 @@ return(species_epithets)
 }
 
 ### routines to standardize taxon names taxon_name="Sulcatospira? praecursor";
-#taxon_name <- "Romaniceras n. sp. (?) aff. R. inerme informal";
+#taxon_name <- "Caryapollenites <sp. <29 micrometers>";
 # editted 2023-01-21 for this error: taxon_name <- "Caryapollenites sp. <29 micrometers" mundify_taxon_names(taxon_name)
-# taxon_name <- "Lancastria cf. plana Geyer and Peel 2011 informal"
-mundify_taxon_names <- function(taxon_name,keep_uncertainty=F, keep_bracket_names=F)	{
+# taxon_name <- "Atopocrinus priscus n. gen. n. sp."
+mundify_taxon_names <- function(taxon_name,keep_uncertainty=FALSE, keep_bracket_names=FALSE)	{
 # taxon_name: string giving species name
 if (gsub(" informal","",taxon_name)!=taxon_name)	{
 	taxon_name <- gsub(" informal","",taxon_name);
 	return(taxon_name);
 	}
+taxon_atomized <- strsplit(taxon_name,split="")[[1]];
+if (sum(taxon_atomized %in% "<")>1)	{
+	ii <- (1:length(taxon_atomized))[taxon_atomized %in% "<"];
+	ii <- ii[!ii %in% ii[1]];
+	taxon_name <- paste(taxon_atomized[!1:length(taxon_atomized) %in% ii],collapse="");
+	}
+taxon_atomized <- strsplit(taxon_name,split="")[[1]];
+if (sum(taxon_atomized %in% ">")>1)	{
+	ii <- (1:length(taxon_atomized))[taxon_atomized %in% ">"];
+	ii <- ii[!ii %in% ii[1]];
+	taxon_name <- paste(taxon_atomized[!1:length(taxon_atomized) %in% ii],collapse="");
+	}
 
+taxon_name <- gsub(" n\\. gen\\. n\\. sp\\.","",taxon_name);
 taxon_name <- gsub(" n\\. sp\\.\\?","",taxon_name);
 taxon_name <- gsub(" n\\. sp\\.","",taxon_name);
 taxon_name <- gsub("n\\. gen\\. ","",taxon_name);
@@ -4681,6 +5070,8 @@ taxon_name <- gsub(" \\?" ,"",taxon_name);
 taxon_name <- gsub("\\? " ," ",taxon_name);
 taxon_name <- gsub("\\?" ,"",taxon_name);
 taxon_name <- gsub("  " ," ",taxon_name);
+while (length(strsplit(taxon_name,"")[[1]])>0 & strsplit(taxon_name,"")[[1]][1]==" ")	taxon_name <- paste(strsplit(taxon_name,"")[[1]][2:length(strsplit(taxon_name,"")[[1]])],collapse="");
+if (length(strsplit(taxon_name,"")[[1]])>0 && strsplit(taxon_name,"")[[1]][1]=="<")	keep_bracket_names <- TRUE; # added 2024-04-26
 if (!keep_bracket_names)	{
 	atomized_name <- strsplit(taxon_name,split="")[[1]];
 	while (atomized_name[1]==" " && length(atomized_name)>1)	atomized_name <- atomized_name[2:length(atomized_name)];
@@ -4727,37 +5118,6 @@ if (length(taxon_name)>0)	{
 return(desired_finds);
 }
 
-### routine to identify uncertain taxon assignment type
-revelare_uncertain_species_assignments <- function(taxon_name)	{
-# taxon_name: string giving species name
-flags <- "";
-cleaned_name <- mundify_taxon_names(taxon_name);
-taxon_name <- gsub("n. gen. ","",taxon_name);
-taxon_name <- gsub("n. sp. ","",taxon_name);
-taxon_name <- gsub("n. subgen. ","",taxon_name);
-species_epithet <- mundify_taxon_names(taxon_name=divido_species_epithets(cleaned_name));
-genus_name <- divido_genus_names_from_species_names(taxon_name);
-subgenus_name <- divido_subgenus_names_from_genus_names(genus_name)[2];
-if (subgenus_name!="")
-	subgenus_name <- paste("(",subgenus_name,")",sep="");
-modified_taxon_name <- gsub(" ex gr\\."," ex_gr\\.",taxon_name);
-taxon_components <- simplify2array(strsplit(modified_taxon_name," ")[[1]]);
-t_c <- 1:length(taxon_components);
-if (!is.na(match("?",taxon_components)) && max(t_c[taxon_components %in% "?"])==length(taxon_components))	{
-	flags <- "uncertain species";
-	} else if (sum(taxon_components %in% uncertains) > 0)	{
-	btc <- t_c[taxon_components %in% uncertains];
-	if (!is.na(match(subgenus_name,taxon_components)) && (match(subgenus_name,taxon_components)+1) %in% btc)	{
-		flags <- "uncertain species";
-		} else if (subgenus_name=="" && (match(genus_name,taxon_components)+1) %in% btc)	{
-		flags <- "uncertain species";
-		} else if (taxon_components[length(taxon_components)]=="?")	{
-		flags <- "uncertain species";
-		}
-	}
-return(flags);
-}
-
 # remember to use only ids of species or subspecies!!!! taxon_names <- taxon_names[40]
 repair_misentered_uncertain_species <- function(taxon_name)	{
 taxon_name_split <- strsplit(taxon_name," ")[[1]]
@@ -4789,6 +5149,8 @@ revelare_informal_taxa <- function(taxon_name,keep_author_specific=TRUE)	{
 molecularized_name <- strsplit(taxon_name,split=" ")[[1]];
 nwords <- length(molecularized_name);
 atomized_name <- strsplit(taxon_name,split="")[[1]];
+if (strsplit(taxon_name,split="")[[1]][1]==" ")	return(TRUE);
+if (taxon_name %in% bad_taxon_entries)	return(TRUE);
 if (keep_author_specific & (sum(atomized_name %in% ".")+sum(atomized_name %in% as.character(0:9)))>0)	{
 	if (sum(atomized_name %in% as.character(0:9))>=4)	{
 		return(FALSE);	# specimen number or publication date!
@@ -4804,9 +5166,47 @@ if (keep_author_specific & (sum(atomized_name %in% ".")+sum(atomized_name %in% a
 	}
 }
 
+### routine to identify uncertain taxon assignment type; taxon_name <- "Calodiscus ? <sp. A> informal";
+revelare_uncertain_species_assignments <- function(taxon_name)	{
+# taxon_name: string giving species name
+flags <- "";
+if (strsplit(taxon_name,split="")[[1]][1] %in% c(" ","<"))	return(flags);
+if (taxon_name %in% bad_taxon_entries)	return(flags);
+taxon_name <- gsub("n\\. gen\\. ","",taxon_name);
+taxon_name <- gsub("n\\. sp\\. ","",taxon_name);
+taxon_name <- gsub("n\\. subgen\\. ","",taxon_name);
+taxon_name <- gsub("<Sp\\. ","<sp\\. ",taxon_name);
+if (strsplit(taxon_name,split="")[[1]][length(strsplit(taxon_name,split="")[[1]])] %in% c(">"))	return(flags);
+
+cleaned_name <- mundify_taxon_names(taxon_name);
+species_epithet <- mundify_taxon_names(taxon_name=divido_species_epithets(cleaned_name));
+genus_name <- divido_genus_names_from_species_names(taxon_name);
+subgenus_name <- divido_subgenus_names_from_genus_names(genus_name)[2];
+if (subgenus_name!="")
+	subgenus_name <- paste("(",subgenus_name,")",sep="");
+modified_taxon_name <- gsub(" ex gr\\."," ex_gr\\.",taxon_name);
+taxon_components <- simplify2array(strsplit(modified_taxon_name," ")[[1]]);
+t_c <- 1:length(taxon_components);
+if (!is.na(match("?",taxon_components)) && max(t_c[taxon_components %in% "?"])==length(taxon_components))	{
+	flags <- "uncertain species";
+	} else if (sum(taxon_components %in% uncertains) > 0)	{
+	btc <- t_c[taxon_components %in% uncertains];
+	if (!is.na(match(subgenus_name,taxon_components)) && (match(subgenus_name,taxon_components)+1) %in% btc)	{
+		flags <- "uncertain species";
+		} else if (subgenus_name=="" && (match(genus_name,taxon_components)+1) %in% btc)	{
+		flags <- "uncertain species";
+		} else if (taxon_components[length(taxon_components)]=="?")	{
+		flags <- "uncertain species";
+		}
+	}
+return(flags);
+}
+
 revelare_uncertain_genus_assignments <- function(taxon_name)	{
 # taxon_name: string giving species name
 flags <- "";
+if (strsplit(taxon_name,split="")[[1]][1] %in% c(" ","<"))	return(flags);
+if (taxon_name %in% bad_taxon_entries)	return(flags);
 taxon_names <- strsplit(taxon_name," ")[[1]];
 if (length(taxon_names)>1)	{
 	poss_genus_name <- divido_genus_names_from_species_names(taxon_names)
@@ -4815,15 +5215,18 @@ if (length(taxon_names)>1)	{
 	} else	{
 	poss_genus_name <- "";
 	}
+taxon_name <- gsub("n\\. gen\\. ","",taxon_name);
+taxon_name <- gsub("n\\. sp\\. ","",taxon_name);
+taxon_name <- gsub("n\\. subgen\\. ","",taxon_name);
+taxon_name <- gsub("<Sp\\. ","<sp\\. ",taxon_name);
 cleaned_name <- mundify_taxon_names(taxon_name);
-taxon_name <- gsub("n. gen. ","",taxon_name);
-taxon_name <- gsub("n. sp. ","",taxon_name);
-taxon_name <- gsub("n. subgen. ","",taxon_name);
 #species_epithet <- mundify_taxon_names(taxon_name=divido_species_epithets(cleaned_name));
 whole_genus_name <- divido_genus_names_from_species_names(species_name=cleaned_name);
 gen_subgen <- divido_subgenus_names_from_genus_names(genus_name=whole_genus_name);
+gen_subgen[is.na(gen_subgen)] <- "";
 genus_name <- mundify_taxon_names(taxon_name=gen_subgen[1]);
 genus_name_check <- divido_subgenus_names_from_genus_names(genus_name=divido_genus_names_from_species_names(taxon_name))[1];
+genus_name_check[is.na(genus_name_check)] <- "";
 subgenus_name <- mundify_taxon_names(taxon_name=gen_subgen[2]);
 if (subgenus_name!="")
 	subgenus_name <- paste("(",subgenus_name,")",sep="");
@@ -4840,7 +5243,7 @@ if (genus_name != genus_name_check || taxon_components[1] %in% uncertains || tax
 return(flags);
 }
 
-### routine to identify uncertain taxon assignment type; taxon_name <- "Acanthoceras amphibolum"
+### routine to identify uncertain taxon assignment type; taxon_name <- "Spinatrypa <Sp. A> informal"
 identify_taxonomic_uncertainty <- function(taxon_name)	{
 # taxon_name: string giving species name
 flags <- revelare_uncertain_genus_assignments(taxon_name);
@@ -4853,6 +5256,20 @@ if (sum(flags!="")==2) {
 	} else	{
 	return(flags[flags!=""]);
 	}
+}
+
+# flag list of species names for uncertainties
+flag_uncertain_species_assignments <- function(species_names)	{
+return(sapply(species_names,flag_uncertain_species_assignment))
+}
+
+# flag one species name for uncertainty
+flag_uncertain_species_assignment <- function(species_name)	{
+uncertain <- FALSE;
+for (u in 1:length(uncertains))	{
+	if (gsub(uncertains[u],"",species_name)!=species_name)	return(TRUE);
+	}
+return(uncertain);
 }
 
 # routine to separate species name from whole name
@@ -5095,14 +5512,27 @@ if (is.subgenus(taxon_name))	{
 }
 
 is.species <- function(taxon_name)	{
+all_names <- strsplit(taxon_name," ")[[1]];
+n_names <- length(all_names);
 if (length(simplify2array(strsplit(taxon_name," ")[[1]]))==2)	{
 	second_name <- simplify2array(strsplit(simplify2array(strsplit(taxon_name," ")[[1]])[2],"")[[1]]);
 	if (second_name[1]=="\\(" || second_name[1]=="(")	{
 		return(FALSE);
+		} else if (all_names[n_names] %in% not_a_species)	{
+		return(FALSE);
 		} else	{
 		return(TRUE);
 		}
-	} else	{
+	} else if (length(simplify2array(strsplit(taxon_name," ")[[1]]))==3) {
+	third_name <- simplify2array(strsplit(simplify2array(strsplit(taxon_name," ")[[1]])[3],"")[[1]]);
+	if (third_name[1]=="\\(" || third_name[1]=="(")	{
+		return(FALSE);
+		} else if (all_names[n_names] %in% not_a_species)	{
+		return(FALSE);
+		} else	{
+		return(TRUE);
+		}
+	} else {
 	return(FALSE);
 	}
 }
@@ -5217,30 +5647,98 @@ return(suprageneric_summaries);
 }
 
 accersi_daughter_taxa <- function(parent_taxon,pbdb_taxonomy,returnable_ranks=standard_pbdb_taxon_ranks)	{
-daughters <- pbdb_taxonomy$taxon_name[pbdb_taxonomy$parent_name==parent_taxon];
-daughter_ranks <- pbdb_taxonomy$taxon_rank[pbdb_taxonomy$parent_name==parent_taxon];
-daughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name==parent_taxon];
-nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,daughter_issues=daughter_issues);
-nn <- nn[nn$daughter_issues=="",];
+daughters_so_far <- daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_name %in% parent_taxon]);
+daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_name %in% parent_taxon]);
+daughter_ranks <- pbdb_taxonomy$accepted_rank[match(daughter_nos,pbdb_taxonomy$accepted_no)];
+#daughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name %in% parent_taxon];
+#nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,daughter_issues=daughter_issues);
+nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,taxon_no=daughter_nos);
+#nn <- nn[nn$daughter_issues=="",];
 return_daughter_info <- nn[nn$daughter_rank %in% returnable_ranks,];
 nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
-
-remaining_daughters <- daughters[!daughters %in% return_daughter_info];
-rd <- 0;
-while (rd < nrow(nn))	{
-	rd <- rd+1;
-	mm <- nn[1,];
-	mm <- mm[mm$daughter=="Fred",]
-	grand_daughters <- pbdb_taxonomy$taxon_name[pbdb_taxonomy$parent_name==nn$daughter[rd]]
-	granddaughter_ranks <- pbdb_taxonomy$taxon_rank[pbdb_taxonomy$parent_name==nn$daughter[rd]]
-	granddaughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name==nn$daughter[rd]]
-	mm <- data.frame(daughter=grand_daughters,daughter_rank=granddaughter_ranks,daughter_issues=granddaughter_issues);
-	mm <- mm[mm$daughter_issues=="",];
-
-	return_daughter_info <- rbind(return_daughter_info,mm[mm$daughter_rank %in% returnable_ranks,]);
-	nn <- rbind(nn,mm[!mm$daughter_rank %in% returnable_ranks,]);
+nn <- nn[!nn$daughter %in% parent_taxon,];
+while (nrow(nn)>0)	{
+	more_daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_ranks <- pbdb_taxonomy$accepted_rank[match(more_daughter_nos,pbdb_taxonomy$accepted_no)];
+	nn <- data.frame(daughter=more_daughters,daughter_rank=more_daughter_ranks,taxon_no=more_daughter_nos);
+	return_daughter_info <- rbind(return_daughter_info,nn[nn$daughter_rank %in% returnable_ranks,]);
+	nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
+	nn <- nn[!nn$daughter %in% c(parent_taxon,daughters_so_far),];
+	daughters_so_far <- unique(c(daughters_so_far,nn$daughter));
 	}
-return_daughter_info$daughter_issues <- NULL;
+
+#remaining_daughters <- daughters[!daughters %in% return_daughter_info];
+#rd <- 0;
+#while (rd < nrow(nn))	{
+#	rd <- rd+1;
+#	mm <- nn[1,];
+#	mm <- mm[mm$daughter %in% "Fred",]
+#	grand_daughters <- pbdb_taxonomy$taxon_name[pbdb_taxonomy$parent_name %in% nn$daughter[rd]];
+#	granddaughter_ranks <- pbdb_taxonomy$taxon_rank[pbdb_taxonomy$parent_name %in% nn$daughter[rd]];
+#	granddaughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name %in% nn$daughter[rd]];
+#	mm <- data.frame(daughter=grand_daughters,daughter_rank=granddaughter_ranks,daughter_issues=granddaughter_issues);
+#	mm <- mm[mm$daughter_issues %in% "",];
+
+#	return_daughter_info <- rbind(return_daughter_info,mm[mm$daughter_rank %in% returnable_ranks,]);
+#	nn <- rbind(nn,mm[!mm$daughter_rank %in% returnable_ranks,]);
+#	}
+#return_daughter_info$daughter_issues <- NULL;
+return(return_daughter_info);
+}
+
+accersi_daughter_taxa_from_taxon_no <- function(parent_taxon_no,pbdb_taxonomy,returnable_ranks=standard_pbdb_taxon_ranks)	{
+daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_no %in% parent_taxon_no]);
+daughters_so_far <- daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_no %in% parent_taxon_no]);
+daughters <- pbdb_taxonomy$taxon_name[match(daughter_nos,pbdb_taxonomy$accepted_no)];
+daughter_ranks <- pbdb_taxonomy$accepted_rank[match(daughter_nos,pbdb_taxonomy$accepted_no)];
+#daughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name %in% parent_taxon];
+#nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,daughter_issues=daughter_issues);
+nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,taxon_no=daughter_nos);
+#nn <- nn[nn$daughter_issues=="",];
+return_daughter_info <- nn[nn$daughter_rank %in% returnable_ranks,];
+nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
+nn <- nn[!nn$taxon_no %in% parent_taxon_no,];
+while (nrow(nn)>0)	{
+	more_daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_ranks <- pbdb_taxonomy$accepted_rank[match(more_daughter_nos,pbdb_taxonomy$accepted_no)];
+	more_daughters <- pbdb_taxonomy$accepted_name[match(more_daughter_nos,pbdb_taxonomy$accepted_no)];
+	nn <- data.frame(daughter=more_daughters,daughter_rank=more_daughter_ranks,taxon_no=more_daughter_nos);
+	return_daughter_info <- rbind(return_daughter_info,nn[nn$daughter_rank %in% returnable_ranks,]);
+	nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
+	nn <- nn[!nn$taxon_no %in% c(parent_taxon_no,daughters_so_far),];
+	daughters_so_far <- unique(c(daughters_so_far,nn$taxon_no));
+	}
+#return_daughter_info$daughter_issues <- NULL;
+return(return_daughter_info);
+}
+
+accersi_daughter_genera_from_taxon_no <- function(parent_taxon_no,pbdb_taxonomy)	{
+returnable_ranks <- c("genus","subgenus");
+daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_no %in% parent_taxon_no]);
+daughters_so_far <- daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_no %in% parent_taxon_no]);
+daughters <- pbdb_taxonomy$taxon_name[match(daughter_nos,pbdb_taxonomy$accepted_no)];
+daughter_ranks <- pbdb_taxonomy$accepted_rank[match(daughter_nos,pbdb_taxonomy$accepted_no)];
+#daughter_issues <- pbdb_taxonomy$difference[pbdb_taxonomy$parent_name %in% parent_taxon];
+#nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,daughter_issues=daughter_issues);
+nn <- data.frame(daughter=daughters,daughter_rank=daughter_ranks,taxon_no=daughter_nos);
+#nn <- nn[nn$daughter_issues=="",];
+return_daughter_info <- nn[nn$daughter_rank %in% returnable_ranks,];
+nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
+nn <- nn[!nn$taxon_no %in% parent_taxon_no,];
+while (nrow(nn)>0)	{
+	more_daughters <- unique(pbdb_taxonomy$accepted_name[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_nos <- unique(pbdb_taxonomy$accepted_no[pbdb_taxonomy$parent_name %in% nn$daughter]);
+	more_daughter_ranks <- pbdb_taxonomy$accepted_rank[match(more_daughter_nos,pbdb_taxonomy$accepted_no)];
+	more_daughters <- pbdb_taxonomy$accepted_name[match(more_daughter_nos,pbdb_taxonomy$accepted_no)];
+	nn <- data.frame(daughter=more_daughters,daughter_rank=more_daughter_ranks,taxon_no=more_daughter_nos);
+	return_daughter_info <- rbind(return_daughter_info,nn[nn$daughter_rank %in% returnable_ranks,]);
+	nn <- nn[!nn$daughter_rank %in% returnable_ranks,];
+	nn <- nn[!nn$taxon_no %in% c(parent_taxon_no,daughters_so_far),];
+	daughters_so_far <- unique(c(daughters_so_far,nn$taxon_no));
+	}
+#return_daughter_info$daughter_issues <- NULL;
 return(return_daughter_info);
 }
 
@@ -5773,14 +6271,30 @@ return(references);
 #latest_date <- "2010-01-01"
 #latest_date <- "2010-01-01"
 update_pbdb_references <- function(latest_date="",earliest_date="1998-11-01")	{
-if (latest_date=="")	latest_date <- strsplit(as.character(Sys.time())," ")[[1]][1];
-http <- paste("https://paleobiodb.org/data1.2/taxa/refs.csv?base_name=Life&refs_created_before=",latest_date,"&refs_modified_after=",earliest_date,"&select=auth,class,ops,occs,specs,colls&private&show=both,crmod",sep="");
-#http <- paste("https://paleobiodb.org/data1.2/taxa/refs.csv?base_name=Life&refs_modified_after=",latest_date,"&select=auth,class,ops,occs,specs,colls&private&show=both,crmod",sep="");
+if (latest_date=="")	{
+	http <- paste("https://paleobiodb.org/data1.2/refs/list.csv?refs_modified_after=",earliest_date,"&show=crmod",sep="");
+	} else	{
+	http <- paste("https://paleobiodb.org/data1.2/refs/list.csv?refs_modified_after=",earliest_date,"&refs_created_before=",latest_date,"&show=crmod",sep="");
+	}
 new_references <- read.csv(http,header=TRUE,stringsAsFactors=F,fileEncoding = "UTF-8");
 new_references <- new_references[order(new_references$reference_no),];
 new_references <- put_pbdb_dataframes_into_proper_type(new_references);
 return(new_references);
 } 	# end update_pbdb_references
+
+update_formatted_pbdb_references <- function(latest_date="",earliest_date="1998-11-01")	{
+if (latest_date=="")	{
+	http <- paste("https://paleobiodb.org/data1.2/refs/list.csv?refs_modified_after=",earliest_date,"&show=formatted",sep="");
+	} else	{
+	http <- paste("https://paleobiodb.org/data1.2/refs/list.csv?refs_modified_after=",earliest_date,"&refs_created_before=",latest_date,"&show=formatted",sep="");
+	}
+
+new_references <- read.csv(http,header=TRUE,stringsAsFactors=F,fileEncoding = "UTF-8");
+new_references <- new_references[order(new_references$reference_no),];
+new_references <- put_pbdb_dataframes_into_proper_type(new_references);
+return(new_references);
+} 	# end update_pbdb_references
+
 #et_al <- "F. A. Jenkins, Jr., L. J. Meeker"
 #et_al <- "Fidalgo, F; Going, F.J.; Quiroga, J.C."
 #et_al <- "P. Müller, A. Guglielmino, E. A. Jarzembowski, L. Capradossi, A. P. Rasnitsyn"
@@ -6418,7 +6932,13 @@ for (rr in 1:nurefs)	{
 		rownames(author_index)[nrow(author_index)] <- new_authors[na];
 		}
 	}
+if (is.list(author_index))	author_index <- unlist(author_index);
+a_i <- as.numeric(author_index[,1]);
+a_i <- array(0,dim(author_index));
+rownames(a_i) <- rownames(author_index);
+for (ac in 1:ncol(author_index))	a_i[,ac] <- as.numeric(author_index[,ac]);
 ttl_authors <- nrow(author_index);
+author_index <- a_i;
 retained_rows <- (1:ttl_authors)[rowSums(author_index)>0];
 author_index <- author_index[retained_rows,];
 author_index <- author_index[order(rownames(author_index)),];
@@ -6929,15 +7449,20 @@ return(web_text);
 }
 
 # routine to cleanup rock unit names; named_rock_unit <- "Konose Group"; dehyphenate=TRUE;delete_rock_type=TRUE;delete_informal=TRUE
-#named_rock_unit <- "St. John"
+#named_rock_unit <- "Sables de Cuise";
 #mundify_rock_unit_names(named_rock_unit,TRUE,TRUE,TRUE);
 # dehyphenate=TRUE; delete_rock_type=TRUE; delete_informal=TRUE;
+# named_rock_unit <- "Du Noir Limestone";
 mundify_rock_unit_names <- function(named_rock_unit,dehyphenate=FALSE,delete_rock_type=FALSE,delete_informal=FALSE)	{
 # was: clean_rock_unit_names
 # named_rock_unit: string giving the name of a formation, member or group
 # delete_rock_type: if true, the "Burgess Shale" becomes "Burgess" This is here because workers are
 #	inconsistent about including rock-types in formation names
 if (is.na(named_rock_unit))	named_rock_unit <- "";
+
+#named_rock_unit <- gsub("\\.","\\. ",named_rock_unit);
+#named_rock_unit <- gsub("\\. ","\\. ",named_rock_unit);
+#n_r_u <- strsplit(named_rock_unit,"")[[1]];
 
 named_rock_unit <- gsub("\u009d","",named_rock_unit);
 named_rock_unit <- gsub("\035","",named_rock_unit);
@@ -6951,72 +7476,104 @@ if (named_rock_unit=="")	{
 	nru <- named_rock_unit;		# for debugging
 #	named_rock_unit <- str_lowercase(named_rock_unit);		# function no longer works
 #	named_rock_unit <- str_ucfirst(named_rock_unit);		# function no longer works
-	named_rock_unit <- gsub(" \\(\\?\\)","",named_rock_unit);
-	named_rock_unit <- gsub("\\(\\?\\) ","",named_rock_unit);
-	named_rock_unit <- gsub("\\(\\?\\)","",named_rock_unit);
-	named_rock_unit <- gsub("\\?","",named_rock_unit);
-	named_rock_unit <- gsub("\"", "",named_rock_unit);
-	named_rock_unit <- gsub("'s","s",named_rock_unit)
-#	named_rock_unit <- gsub("'s ", "s ",named_rock_unit);
-	named_rock_unit <- gsub("’s ", "s ",named_rock_unit);
-	named_rock_unit <- gsub("’", "\\'",named_rock_unit);
-	named_rock_unit <- gsub("“", "",named_rock_unit);
-	named_rock_unit <- gsub("”", "",named_rock_unit);
-	named_rock_unit <- gsub("‘", "",named_rock_unit);
-	named_rock_unit <- gsub("’", "",named_rock_unit);
-	named_rock_unit <- gsub("\'", "",named_rock_unit);
-	named_rock_unit <- gsub(" - ","-",named_rock_unit);
-	named_rock_unit <- gsub(" – ","-",named_rock_unit);
-	named_rock_unit <- gsub(" — ","-",named_rock_unit);
-	named_rock_unit <- gsub("–","-",named_rock_unit);
-	named_rock_unit <- gsub("—","-",named_rock_unit);
-	named_rock_unit <- gsub("Ste.-","Ste. ",named_rock_unit);
-	named_rock_unit <- gsub("Ste-","Ste. ",named_rock_unit);
-	named_rock_unit <- gsub("St.-","St. ",named_rock_unit);
-	named_rock_unit <- gsub("St-","St. ",named_rock_unit);
-	named_rock_unit <- gsub("#","",named_rock_unit);
-	named_rock_unit <- gsub("lower part","",named_rock_unit);
-	named_rock_unit <- gsub("middle part","",named_rock_unit);
-	named_rock_unit <- gsub("upper part","",named_rock_unit);
-	named_rock_unit <- gsub("-bearing","",named_rock_unit);
-	named_rock_unit <- gsub("-horizon","",named_rock_unit);
-	named_rock_unit <- gsub("Ã„","A",named_rock_unit);
-	named_rock_unit <- gsub("ã„","a",named_rock_unit);
-	named_rock_unit <- gsub("Á","A",named_rock_unit);
-	named_rock_unit <- gsub("á","a",named_rock_unit);
-	named_rock_unit <- gsub("Ã¡","a",named_rock_unit);
-	named_rock_unit <- gsub("ã¡","a",named_rock_unit);
-	named_rock_unit <- gsub("Ã¤","a",named_rock_unit);
-	named_rock_unit <- gsub("ã¤","a",named_rock_unit);
-	named_rock_unit <- gsub("Ã¥","a",named_rock_unit);
-	named_rock_unit <- gsub("ã¥","a",named_rock_unit);
-	named_rock_unit <- gsub("√†","a",named_rock_unit);
-	named_rock_unit <- gsub("√§","a",named_rock_unit);
-	named_rock_unit <- gsub("Ã§","c",named_rock_unit);
-	named_rock_unit <- gsub("ã§","c",named_rock_unit);
-	named_rock_unit <- gsub("Ã©","e",named_rock_unit);
-	named_rock_unit <- gsub("ã©","e",named_rock_unit);
-	named_rock_unit <- gsub("Ã¨","e",named_rock_unit);
-	named_rock_unit <- gsub("Ã±","n",named_rock_unit);
-	named_rock_unit <- gsub("Ã–","O",named_rock_unit);
-	named_rock_unit <- gsub("Ã¸","o",named_rock_unit);
-	named_rock_unit <- gsub("√≥","o",named_rock_unit);
-	named_rock_unit <- gsub("√∂","o",named_rock_unit);
-	named_rock_unit <- gsub("Ã¶","o",named_rock_unit);
-	named_rock_unit <- gsub("Ãµ","o",named_rock_unit);
-	named_rock_unit <- gsub("Ã´","o",named_rock_unit);
-	named_rock_unit <- gsub("ã´","o",named_rock_unit);
-	named_rock_unit <- gsub("Ã¼","u",named_rock_unit);
-	named_rock_unit <- gsub("ã¼","u",named_rock_unit);
-	named_rock_unit <- gsub("≈´","u",named_rock_unit);
-	named_rock_unit <- gsub("√Æ","i",named_rock_unit);
-	named_rock_unit <- gsub("√æ","i",named_rock_unit);
-	named_rock_unit <- gsub("≈†","S",named_rock_unit);
-	named_rock_unit <- gsub("≈°","s",named_rock_unit);
-	named_rock_unit <- gsub("‚Äì","-",named_rock_unit);
-	named_rock_unit <- gsub("√•","a",named_rock_unit);
-	named_rock_unit <- gsub("&#367;","u",named_rock_unit);
-	named_rock_unit <- gsub("&#945;","α",named_rock_unit);
+	if (1>0)	{
+		named_rock_unit <- gsub(" \\(\\?\\)","",named_rock_unit);
+		named_rock_unit <- gsub("\\(\\?\\) ","",named_rock_unit);
+		named_rock_unit <- gsub("\\(\\?\\)","",named_rock_unit);
+		named_rock_unit <- gsub("\\?","",named_rock_unit);
+		named_rock_unit <- gsub("\"", "",named_rock_unit);
+		named_rock_unit <- gsub("'s","s",named_rock_unit)
+	#	named_rock_unit <- gsub("'s ", "s ",named_rock_unit);
+		named_rock_unit <- gsub("’s ", "s ",named_rock_unit);
+		named_rock_unit <- gsub("’", "\\'",named_rock_unit);
+		named_rock_unit <- gsub("“", "",named_rock_unit);
+		named_rock_unit <- gsub("”", "",named_rock_unit);
+		named_rock_unit <- gsub("‘", "",named_rock_unit);
+		named_rock_unit <- gsub("’", "",named_rock_unit);
+		named_rock_unit <- gsub("d\'", "•",named_rock_unit);
+		named_rock_unit <- gsub("D\'", "•",named_rock_unit);
+		named_rock_unit <- gsub("\'", "",named_rock_unit);
+		named_rock_unit <- gsub("•","d\'",named_rock_unit);
+		named_rock_unit <- gsub(" - ","-",named_rock_unit);
+		named_rock_unit <- gsub(" – ","-",named_rock_unit);
+		named_rock_unit <- gsub(" — ","-",named_rock_unit);
+		named_rock_unit <- gsub("–","-",named_rock_unit);
+		named_rock_unit <- gsub("—","-",named_rock_unit);
+		named_rock_unit <- gsub("Ste.-","Ste. ",named_rock_unit);
+		named_rock_unit <- gsub("Ste-","Ste. ",named_rock_unit);
+		named_rock_unit <- gsub("St.-","St. ",named_rock_unit);
+		named_rock_unit <- gsub("St-","St. ",named_rock_unit);
+		named_rock_unit <- gsub("#","",named_rock_unit);
+		named_rock_unit <- gsub("lower part","",named_rock_unit);
+		named_rock_unit <- gsub("middle part","",named_rock_unit);
+		named_rock_unit <- gsub("upper part","",named_rock_unit);
+		named_rock_unit <- gsub("-bearing","",named_rock_unit);
+		named_rock_unit <- gsub("-Bearing","",named_rock_unit);
+		named_rock_unit <- gsub("-horizon","",named_rock_unit);
+		named_rock_unit <- gsub("-Horizon","",named_rock_unit);
+		named_rock_unit <- gsub("‚Au","",named_rock_unit);
+		named_rock_unit <- gsub("Ã„","A",named_rock_unit);
+		named_rock_unit <- gsub("ã„","a",named_rock_unit);
+		named_rock_unit <- gsub("Á","A",named_rock_unit);
+		named_rock_unit <- gsub("√N","A",named_rock_unit);
+		named_rock_unit <- gsub("√A","A",named_rock_unit);
+		named_rock_unit <- gsub("á","a",named_rock_unit);
+		named_rock_unit <- gsub("Ã¡","a",named_rock_unit);
+		named_rock_unit <- gsub("ã¡","a",named_rock_unit);
+		named_rock_unit <- gsub("Ã¤","a",named_rock_unit);
+		named_rock_unit <- gsub("ã¤","a",named_rock_unit);
+		named_rock_unit <- gsub("Ã¥","a",named_rock_unit);
+		named_rock_unit <- gsub("ã¥","a",named_rock_unit);
+		named_rock_unit <- gsub("√†","a",named_rock_unit);
+		named_rock_unit <- gsub("√§","a",named_rock_unit);
+		named_rock_unit <- gsub("√d","a",named_rock_unit);
+		named_rock_unit <- gsub("√¢","a",named_rock_unit);
+		named_rock_unit <- gsub("√a","C",named_rock_unit);
+		named_rock_unit <- gsub("Ã§","c",named_rock_unit);
+		named_rock_unit <- gsub("ã§","c",named_rock_unit);
+		named_rock_unit <- gsub("√∞","d",named_rock_unit);
+		named_rock_unit <- gsub("Ã©","e",named_rock_unit);
+		named_rock_unit <- gsub("√©","e",named_rock_unit);
+		named_rock_unit <- gsub("√™","e",named_rock_unit);
+		named_rock_unit <- gsub("√®","e",named_rock_unit);
+		named_rock_unit <- gsub("ã©","e",named_rock_unit);
+		named_rock_unit <- gsub("Ã¨","e",named_rock_unit);
+		named_rock_unit <- gsub("√O","i",named_rock_unit);
+		named_rock_unit <- gsub("√≠","i",named_rock_unit);
+		named_rock_unit <- gsub("√Æ","i",named_rock_unit);
+		named_rock_unit <- gsub("√æ","i",named_rock_unit);
+		named_rock_unit <- gsub("√ë","N",named_rock_unit);
+		named_rock_unit <- gsub("Ã±","n",named_rock_unit);
+		named_rock_unit <- gsub("Ã–","O",named_rock_unit);
+		named_rock_unit <- gsub("√n","O",named_rock_unit);
+		named_rock_unit <- gsub("√o","O",named_rock_unit);
+		named_rock_unit <- gsub("√i","O",named_rock_unit);
+		named_rock_unit <- gsub("Ã¸","o",named_rock_unit);
+		named_rock_unit <- gsub("√¥","o",named_rock_unit);
+		named_rock_unit <- gsub("√≥","o",named_rock_unit);
+		named_rock_unit <- gsub("√∂","o",named_rock_unit);
+		named_rock_unit <- gsub("√∏","o",named_rock_unit);
+		named_rock_unit <- gsub("Ã¶","o",named_rock_unit);
+		named_rock_unit <- gsub("Ãµ","o",named_rock_unit);
+		named_rock_unit <- gsub("Ã´","o",named_rock_unit);
+		named_rock_unit <- gsub("ã´","o",named_rock_unit);
+		named_rock_unit <- gsub("√º","u",named_rock_unit);
+		named_rock_unit <- gsub("√°","u",named_rock_unit);
+		named_rock_unit <- gsub("Ã¼","u",named_rock_unit);
+		named_rock_unit <- gsub("ã¼","u",named_rock_unit);
+		named_rock_unit <- gsub("≈´","u",named_rock_unit);
+		named_rock_unit <- gsub("≈†","S",named_rock_unit);
+		named_rock_unit <- gsub("≈°","s",named_rock_unit);
+		named_rock_unit <- gsub("‚Äì","-",named_rock_unit);
+		named_rock_unit <- gsub("√•","a",named_rock_unit);
+		named_rock_unit <- gsub("&#367;","u",named_rock_unit);
+		named_rock_unit <- gsub("&#945;","α",named_rock_unit);
+		named_rock_unit <- gsub("√ss","c",named_rock_unit);
+		named_rock_unit <- gsub("Ç","C",named_rock_unit);
+		named_rock_unit <- gsub("ç","c",named_rock_unit);
+		named_rock_unit <- gsub("Ç","C",named_rock_unit);
+		named_rock_unit <- gsub("ç","c",named_rock_unit);
+		}
 
 	named_rock_unit <- gsub(" Part Of "," ",named_rock_unit);
 	named_rock_unit <- transmogrify_diacritics(named_rock_unit);
@@ -7039,7 +7596,7 @@ if (named_rock_unit=="")	{
 		if (n_r_u[1]=="Mountain")	n_r_u[1] <- "Mount";
 		}
 
-	bad_words <- c("basal","bed","beds","between","biofacies","biozone","complex","contact","couches","cyclothem","cycle","facies","facies","fazies","fm.","fm","formacion","formation","group","horizons","horizon","layer","level","lagoonal","member","mbr","mb","mb.","miembro","niveau","portion","section","series","shelly","stage","standard","suite","subst.","subunit","subsuite","subzone","unit","units","unknown","unnamed","zone","bottom","top","(lower)","(middle)","(upper)","(bottom)","(top)","regional","seam","thin-bedded","undifferentiated");
+	bad_words <- c("basal","bed","beds","between","biofacies","biozone","complex","contact","couches","cyclothem","cycle","facies","facies","fazies","fm.","fm","formacion","formation","group","horizons","horizon","layer","level","lagoonal","member","mbr","mb","mb.","miembro","niveau","portion","section","series","shellbeds","shellbed","shelly","stage","standard","suite","subst.","subunit","subsuite","subzone","svita","unit","units","unknown","unnamed","zone","bottom","top","(lower)","(middle)","(upper)","(bottom)","(top)","regional","seam","thin-bedded","undifferentiated");
 	uncensored <- (1:rock_names)[!tolower(n_r_u) %in% bad_words];
 
 	named_rock_unit <- paste(n_r_u[uncensored],collapse = " ");
@@ -7057,13 +7614,13 @@ if (named_rock_unit=="")	{
 		named_rock_unit_2 <- gsub("&"," ",named_rock_unit_2);
 		n_r_u <- strsplit(named_rock_unit_2," ")[[1]];
 		rock_names <- length(n_r_u);
-#		bad_words_2 <- c("argillaceous","ashes","ash","calcaerous","calcaire","carbonate","chalk","cherts","chert","clay","claystone","claystones","conglomerates","conglomerate","coquina","coquinas","dolomites","dolomite","dolostones","dolostone","flags","glauconites","glauconite","glauconitics","glauconitic","gres","grauwacke","greywacke","greywackes","grits","grit","kalk","limestone","limestones","limeston","limstone","ls.","ls","lst","lst.","marlstones","marlstone","marl","marls","marly","micrites","micrite","mudstones","mudstone","ooid","ooids","phosphatics","phosphatic","phosphorite","phosphorites","qzt.","quartzite","quartzites","sandstone","sandstones","scheifer,"schichten","schistes","shales","shale","shaly","siltstones","siltstone","tillite","tillites","tuff","tuffs","volcanic","volcanics");
+#		bad_words_2 <- c("argillaceous","ashes","ash","calcaerous","calcaire","carbonate","chalk","cherts","chert","clay","claystone","claystones","conglomerates","conglomerate","coquina","coquinas","dolomites","dolomite","dolostones","dolostone","flags","glauconites","glauconite","glauconitics","glauconitic","gres","grauwacke","greywacke","greywackes","grits","grit","kalk","limestone","limestones","limeston","limstone","ls.","ls","lst","lst.","marlstones","marlstone","marl","marls","marly","micrites","micrite","mudstones","mudstone","ooid","ooids","oolites","oolite","phosphatics","phosphatic","phosphorite","phosphorites","qzt.","quartzite","quartzites","sandstone","sandstones","scheifer","schiefer,"schichten","schistes","shales","shale","shaly","siltstones","siltstone","tillite","tillites","tuff","tuffs","volcanic","volcanics");
 #		sedimentary_rocks <- sedimentary_rocks;
 		uncensored <- (1:rock_names)[!tolower(n_r_u) %in% sedimentary_rocks];
 #		if (length(uncensored) < (rock_names-1))	{
 		if (length(uncensored) < rock_names)	{
 			censored <- (1:rock_names)[tolower(n_r_u) %in% sedimentary_rocks];
-			accessories <- unique(sort(c("and","et","y","de","di","del","du","de","a","della","del","y","di")));
+			accessories <- unique(sort(c("a","and","et","de","di","del","des","du","della","del","di","la","le","les","y")));
 			# get the "and" & "of the" words out if they link rock types to proper names
 			poss_censored <- (1:rock_names)[tolower(n_r_u) %in% accessories];
 			if (length(poss_censored)>0 && length(censored)>0)
@@ -7092,8 +7649,9 @@ if (named_rock_unit=="")	{
 #				}
 			}
 		named_rock_unit <- paste(n_r_u[uncensored],collapse = " ");
+		named_rock_unit <- gsub("d\\'","",named_rock_unit);
 #		print(named_rock_unit);
-		}
+		} # end delete rock type
 
 	if (delete_informal)	{
 		informals <- c("basal","base","inferieur","lower","lowermost","lowest","middle","upper","uppermost","superieur","informal","tongue","equivalent");
@@ -7124,6 +7682,10 @@ if (named_rock_unit=="")	{
 		}
 	named_rock_unit <- gsub(" \\( And \\)","",named_rock_unit);
 	named_rock_unit <- gsub(" \\( and \\)","",named_rock_unit);
+
+	# delete 'the'
+	n_r_u <- strsplit(named_rock_unit,split=" ")[[1]];
+#	if (tolower(n_r_u[1]) %in% the_thes & length(n_r_u)>1)	named_rock_unit <- paste(n_r_u[2:length(n_r_u)],collapse=" ");
 #	print(named_rock_unit);
 	if (named_rock_unit=="")	{
 		return(named_rock_unit);
@@ -7844,6 +8406,151 @@ if (is.na(match(taxon_rank,colnames(paleodb_taxonomy))))	{
 return(paleodb_taxonomy)
 }
 
+#taxon_no <- pbdb_taxonomy$taxon_no[pbdb_taxonomy$taxon_name=="Kullingia"];
+#find_higher_taxon_for_taxon_no(148129,"kingdom",pbdb_taxonomy)
+find_higher_taxon_for_taxon_no <- function(taxon_no,higher_rank,pbdb_taxonomy)	{
+higher_rank_no <- match(higher_rank,taxonomic_rank);
+kingdom_rank <- match("kingdom",taxonomic_rank);
+parent_no <- pbdb_taxonomy$parent_no[pbdb_taxonomy$taxon_no==taxon_no];
+this_parent <- pbdb_taxonomy$accepted_name[pbdb_taxonomy$taxon_no==parent_no];
+parent_rank <- pbdb_taxonomy$accepted_rank[pbdb_taxonomy$taxon_no==parent_no];
+if (this_parent %in% c("","Life"))	return("");
+while (match(parent_rank,taxonomic_rank) < higher_rank_no || match(parent_rank,taxonomic_rank) > kingdom_rank)	{
+	parent_no <- pbdb_taxonomy$parent_no[pbdb_taxonomy$taxon_no==parent_no];
+	if (parent_no==0)	{
+		this_parent <- "";
+		parent_rank <- higher_rank;
+		}
+	if (this_parent %in% c("","Life")) break;
+	parent_rank <- pbdb_taxonomy$accepted_rank[pbdb_taxonomy$taxon_no==parent_no];
+	this_parent <- pbdb_taxonomy$accepted_name[pbdb_taxonomy$taxon_no==parent_no];
+	}
+return(this_parent);
+}
+
+add_higher_taxon_to_pbdb_taxonomy_new <- function(taxon_rank,paleodb_taxonomy)	{
+taxon_rank <- tolower(taxon_rank);
+taxon_rank_no <- paste(taxon_rank,"_no",sep="");
+if (is.na(match(taxon_rank,colnames(paleodb_taxonomy))))	{
+	higher_taxon_info <- data.frame(a=as.character(rep("",nrow(paleodb_taxonomy))),
+																	b=as.numeric(rep(0,nrow(paleodb_taxonomy))));
+	colnames(higher_taxon_info) <- c(taxon_rank,paste(taxon_rank,"_no",sep=""));
+
+	# add this to PBDB taxonomy
+	existing_higher_taxa <- colnames(paleodb_taxonomy)[colnames(paleodb_taxonomy) %in% taxonomic_rank];
+	next_highest <- existing_higher_taxa[1+sum((match(taxon_rank,taxonomic_rank)<match(existing_higher_taxa,taxonomic_rank)))];
+	paleodb_taxonomy <- tibble::add_column(paleodb_taxonomy,higher_taxon_info,.before=match(next_highest,colnames(paleodb_taxonomy)));
+	taxon_col <- match(taxon_rank,colnames(paleodb_taxonomy));
+	taxon_no_col <- 1+match(taxon_rank,colnames(paleodb_taxonomy));
+	# adjust all of the taxa of this rank.
+	paleodb_taxonomy[paleodb_taxonomy$accepted_rank %in% taxon_rank,taxon_no_col] <- paleodb_taxonomy$accepted_no[paleodb_taxonomy$accepted_rank %in% taxon_rank];
+	paleodb_taxonomy[paleodb_taxonomy$accepted_rank %in% taxon_rank,taxon_col] <- paleodb_taxonomy$accepted_name[paleodb_taxonomy$accepted_rank%in% taxon_rank];
+#	paleodb_taxonomy[paleodb_taxonomy$taxon_name=="Kimberella",]
+	# set aside all taxa of this rank (e.g., accepted_rank==superfamily)
+	taxon_rank_taxonomy <- paleodb_taxonomy[paleodb_taxonomy$accepted_rank %in% taxon_rank,];
+	taxon_rank_taxonomy <- taxon_rank_taxonomy[taxon_rank_taxonomy$taxon_name%in%taxon_rank_taxonomy$accepted_name,];
+	taxon_rank_taxonomy <- taxon_rank_taxonomy[taxon_rank_taxonomy$taxon_rank%in%taxon_rank_taxonomy$accepted_rank,];
+#	taxon_rank_taxonomy[taxon_rank_taxonomy$taxon_name=="Crassiproetus alpenensis",]
+
+	for (tr in 1:nrow(taxon_rank_taxonomy))	{
+		this_beast <- taxon_rank_taxonomy$taxon_name[tr];
+		this_beast_no <- unique(c(taxon_rank_taxonomy$orig_no[tr],taxon_rank_taxonomy$taxon_no[tr],taxon_rank_taxonomy$accepted_no[tr]));
+		daughters <- paleodb_taxonomy[paleodb_taxonomy$parent_no %in% this_beast_no,]
+		paleodb_taxonomy[paleodb_taxonomy$parent_name=="Animalia",][1,]
+		}
+
+	parent_nos <- unique(taxon_rank_taxonomy$accepted_no);
+	# set aside all daughters of the taxa with the added rank
+	descendants <- data.frame(parent_no=paleodb_taxonomy$parent_no[paleodb_taxonomy$parent_no %in% parent_nos],
+														child=paleodb_taxonomy$taxon_name[paleodb_taxonomy$parent_no %in% parent_nos],
+														child_no=paleodb_taxonomy$taxon_no[paleodb_taxonomy$parent_no %in% parent_nos],
+														child_orig_no=paleodb_taxonomy$orig_no[paleodb_taxonomy$parent_no %in% parent_nos],
+														child_rank=paleodb_taxonomy$taxon_rank[paleodb_taxonomy$parent_no %in% parent_nos]);
+	# focus initially on taxonomic ranks not in the basic taxonomy output
+	prob_descendants <- descendants[descendants$child_rank %in% c(colnames(paleodb_taxonomy),"subgenus","species"),];
+	tricky_descendants <- descendants[!descendants$child_no %in% prob_descendants$child_no,];
+	descendants <- prob_descendants;
+	while (nrow(prob_descendants)>0)	{
+#		new_children_info <- pbdb_taxonomy[pbdb_taxonomy$parent_no %in% prob_descendants$child_no,];
+		new_children <- data.frame(parent_no=paleodb_taxonomy$parent_no[paleodb_taxonomy$parent_no %in% prob_descendants$child_no],
+															 child=paleodb_taxonomy$taxon_name[paleodb_taxonomy$parent_no %in% prob_descendants$child_no],
+															 child_no=paleodb_taxonomy$taxon_no[paleodb_taxonomy$parent_no %in% prob_descendants$child_no],
+															 child_orig_no=paleodb_taxonomy$orig_no[paleodb_taxonomy$parent_no %in% prob_descendants$child_no],
+															 child_rank=paleodb_taxonomy$taxon_rank[paleodb_taxonomy$parent_no %in% prob_descendants$child_no]);
+		new_children$parent_no <- descendants$parent_no[match(new_children$parent_no,prob_descendants$child_no)];
+		prob_descendants <- new_children[!new_children$child_rank %in% c(colnames(paleodb_taxonomy),"subgenus","species"),];
+		descendants <- rbind(descendants,new_children);
+		descendants <- descendants[descendants$child_rank %in% c(colnames(paleodb_taxonomy),"subgenus","species"),];
+		} # end problematic descendants
+
+	while (nrow(tricky_descendants)>0)	{
+		new_children <- data.frame(parent_no=paleodb_taxonomy$parent_no[paleodb_taxonomy$parent_no %in% tricky_descendants$child_no],
+															 child=paleodb_taxonomy$taxon_name[paleodb_taxonomy$parent_no %in% tricky_descendants$child_no],
+															 child_no=paleodb_taxonomy$taxon_no[paleodb_taxonomy$parent_no %in% tricky_descendants$child_no],
+															 child_orig_no=paleodb_taxonomy$orig_no[paleodb_taxonomy$parent_no %in% tricky_descendants$child_no],
+															 child_rank=paleodb_taxonomy$taxon_rank[paleodb_taxonomy$parent_no %in% tricky_descendants$child_no]);
+		new_children$parent_no <- descendants$parent_no[match(new_children$parent_no,tricky_descendants$child_no)];
+		tricky_descendants <- new_children[!new_children$child_rank %in% c(colnames(paleodb_taxonomy),"subgenus","species"),];
+		descendants <- rbind(descendants,new_children);
+		descendants <- descendants[descendants$child_rank %in% c(colnames(paleodb_taxonomy),"subgenus","species"),];
+		}
+
+	problem_children <- paleodb_taxonomy[paleodb_taxonomy[,taxon_rank_no]==0,]
+	problem_children <- problem_children[order(-match(problem_children$taxon_rank,taxonomic_rank)),];
+	problem_children <- problem_children[problem_children$parent_no>0,];
+	problem_parents <- unique(problem_children$parent_name);
+	problem_parent_nos <- unique(problem_children$parent_no);
+#	for (pp in 1:length(problem_parent_nos))	{
+#		paleodb_taxonomy[paleodb_taxonomy$taxon_no == problem_parent_nos[pp],]
+#		}
+
+		# fill out columns to be added
+#	higher_taxon_info[match(descendants$child_no,pbdb_taxonomy$taxon_no),1] <- pbdb_taxonomy$accepted_name[match(descendants$parent_no,pbdb_taxonomy$taxon_no)];
+#	higher_taxon_info[match(descendants$child_no,pbdb_taxonomy$taxon_no),2] <- pbdb_taxonomy$accepted_no[match(descendants$parent_no,pbdb_taxonomy$taxon_no)];
+	descendants <- descendants[order(descendants$child_no),];
+	paleodb_taxonomy <- paleodb_taxonomy[order(paleodb_taxonomy$taxon_no),];
+#	paleodb_taxonomy[paleodb_taxonomy$taxon_name=="Kimberella",]
+	relv_child_ranks <- unique(descendants$child_rank)[order(-match(unique(descendants$child_rank),taxonomic_rank))];
+	relv_child_ranks <- relv_child_ranks[match(relv_child_ranks,taxonomic_rank)<match(taxon_rank,taxonomic_rank)];
+	rcr <- 0;
+	while (rcr < length(relv_child_ranks)) {
+		rcr <- rcr+1;
+	  this_rank <- relv_child_ranks[rcr];
+	  this_rank_no <- paste(this_rank,"_no",sep="");
+    if (match(this_rank,taxonomic_rank)>match("genus",taxonomic_rank)) {
+      print(paste("Assigning members of ",this_rank,"s to the appropriate ",taxon_rank,sep=""));
+      } else if (this_rank=="genus")  {
+      print(paste("Assigning genera to the appropriate ",taxon_rank,sep=""));
+      } else if (this_rank=="subgenus") {
+      print(paste("Assigning subgenera to the appropriate ",taxon_rank,sep=""));
+      } else if (this_rank=="species")  {
+      print(paste("Assigning species to the appropriate ",taxon_rank,sep=""));
+      } else if (this_rank=="subspecies")  {
+      print(paste("Assigning subspecies to the appropriate ",taxon_rank,sep=""));
+      }
+		these_descendants <- descendants[descendants$child_rank %in% this_rank,];
+		these_descendants_parent <- paleodb_taxonomy[match(these_descendants$child_no,paleodb_taxonomy$taxon_no),taxon_rank]
+		these_descendants <- these_descendants[these_descendants_parent=="",];
+#		these_descendants[these_descendants[,taxon_rank]=="",]
+		pbdb_tx_col <- match(this_rank,colnames(paleodb_taxonomy));
+		if (!is.na(pbdb_tx_col))  {
+			pbdb_txn_col <- 1+match(this_rank,colnames(paleodb_taxonomy));
+			} else  {
+			pbdb_txn_col <- match("taxon_no",colnames(paleodb_taxonomy));
+			}
+		for (td in 1:nrow(these_descendants)) {
+#			paleodb_taxonomy[,taxon_rank]   [paleodb_taxonomy[,this_rank_no]==these_descendants$child_no[td]] <- paleodb_taxonomy[,taxon_rank]   [match(these_descendants$child_no[td],paleodb_taxonomy$taxon_no)];
+#			paleodb_taxonomy[,taxon_rank_no][paleodb_taxonomy[,this_rank_no]==these_descendants$child_no[td]] <- paleodb_taxonomy[,taxon_rank_no][match(these_descendants$child_no[td],paleodb_taxonomy$taxon_no)];
+			paleodb_taxonomy[paleodb_taxonomy[,pbdb_txn_col] %in% c(these_descendants$child_no[td],these_descendants$child_orig_no[td]),taxon_col] <- paleodb_taxonomy$accepted_name[match(these_descendants$parent_no[td],paleodb_taxonomy$taxon_no)];
+			paleodb_taxonomy[paleodb_taxonomy[,pbdb_txn_col] %in% c(these_descendants$child_no[td],these_descendants$child_orig_no[td]),taxon_no_col] <- these_descendants$parent_no[td];
+			}
+#    print(pbdb_taxonomy[pbdb_taxonomy$taxon_name=="Coxiconchia",])
+		paleodb_taxonomy[paleodb_taxonomy$taxon_name=="Crassiproetus alpenensis",]
+		} # end search of this rank
+	}
+return(paleodb_taxonomy)
+}
+
 add_higher_taxon_to_pbdb_taxonomy_old <- function(taxon_rank,pbdb_taxonomy)	{
 taxon_rank <- tolower(taxon_rank);
 if (is.na(match(taxon_rank,colnames(pbdb_taxonomy))))	{
@@ -7956,28 +8663,84 @@ names(leias_and_lukes) <- c("all_orphan_taxonomy","orphaned_taxa_taxonomy","hous
 return(leias_and_lukes)
 }
 
-#pbdb_finds <- pbdb_data_list$pbdb_finds;
-lump_eponymous_subgenera <- function(pbdb_finds,pbdb_taxonomy)  {
-pbdb_finds$subgenus_no[is.na(pbdb_finds$subgenus_no)] <- 0;
-genus_name <- pbdb_finds$genus;
+#paleodb_finds <- partition_finds;
+lump_eponymous_subgenera <- function(paleodb_finds,pbdb_taxonomy)  {
+paleodb_finds <- paleodb_finds[order(paleodb_finds$occurrence_no),];
+paleodb_finds$subgenus_no[is.na(paleodb_finds$subgenus_no)] <- 0;
+paleodb_finds$genus[paleodb_finds$subgenus_no>0] <- pbdb_taxonomy$accepted_name[match(paleodb_finds$subgenus_no[paleodb_finds$subgenus_no>0],pbdb_taxonomy$taxon_no)]
+genus_name <- paleodb_finds$genus;
 split_names <- data.frame(base::t(pbapply::pbsapply(genus_name,divido_subgenus_names_from_genus_names)));
 colnames(split_names) <- c("genus","subgenus");
-subgenus_finds <- pbdb_finds[!split_names$subgenus=="",];
-split_names <- split_names[split_names$subgenus!="",];
-subgenus_finds$subgenus_no <- pbdb_taxonomy$taxon_no[match(subgenus_finds$genus,pbdb_taxonomy$taxon_name)];
-parent_nos <- pbdb_taxonomy$parent_no[match(subgenus_finds$genus,pbdb_taxonomy$taxon_name)];
-subgenus_finds$genus[split_names$genus==split_names$subgenus] <- split_names$genus[split_names$genus==split_names$subgenus];
-subgenus_finds$genus_no[split_names$genus==split_names$subgenus] <- parent_nos[split_names$genus==split_names$subgenus];
-pbdb_finds[pbdb_finds$occurrence_no %in% subgenus_finds$occurrence_no,] <- subgenus_finds;
+rownames(split_names) <- NULL;
+split_names$occurrence_no <- paleodb_finds$occurrence_no;
+split_names$genus_no <- paleodb_finds$genus_no;
+split_names$subgenus_no <- paleodb_finds$subgenus_no;
+genera_w_subgenera <- split_names$genus[split_names$subgenus!=""];
+genera_only <- split_names[split_names$subgenus=="",];
+subgenera_only <- split_names[split_names$subgenus!="",];
+eponymous_only <- subgenera_only[subgenera_only$subgenus==subgenera_only$genus,];
+novel_subgenera_only <- subgenera_only[subgenera_only$subgenus!=subgenera_only$genus,];
+eponymous_only$subgenus_no[!eponymous_only$genus %in% novel_subgenera_only$genus] <- 0;
+paleodb_finds$genus[paleodb_finds$occurrence_no %in% eponymous_only$occurrence_no] <- eponymous_only$genus;
+paleodb_finds$subgenus_no[paleodb_finds$occurrence_no %in% eponymous_only$occurrence_no] <- 0;
 
-eponymous_combos <- unique(split_names[split_names$genus==split_names$subgenus,]);
-eponymous_combos$whole_name <- paste(eponymous_combos$genus," (",eponymous_combos$genus,")",sep="");
-eponymous_combos$subgenus_no <- pbdb_taxonomy$taxon_no[match(eponymous_combos$whole_name,pbdb_taxonomy$taxon_name)];
-eponymous_combos$parent_no <- pbdb_taxonomy$parent_no[match(eponymous_combos$whole_name,pbdb_taxonomy$taxon_name)];
-eponymous_finds <- pbdb_finds[pbdb_finds$genus_no %in% eponymous_combos$parent_no,];
-eponymous_finds$subgenus_no <- eponymous_combos$subgenus_no[match(eponymous_finds$genus_no,eponymous_combos$parent_no)];
-pbdb_finds[match(eponymous_finds$occurrence_no,pbdb_finds$occurrence_no),] <- eponymous_finds;
-return(pbdb_finds);
+#subgenus_finds <- paleodb_finds[paleodb_finds$subgenus_no>0,];
+#genus_name <- subgenus_finds$genus;
+#split_names$subgenus[split_names$subgenus==""] <- split_names$genus[split_names$subgenus==""];
+#subgenus_finds$subgenus_no <- pbdb_taxonomy$taxon_no[match(subgenus_finds$genus,pbdb_taxonomy$taxon_name)];
+#parent_nos <- pbdb_taxonomy$parent_no[match(subgenus_finds$genus,pbdb_taxonomy$taxon_name)];
+#subgenus_finds$genus[split_names$genus==split_names$subgenus] <- split_names$genus[split_names$genus==split_names$subgenus];
+#subgenus_finds$genus_no[split_names$genus==split_names$subgenus] <- parent_nos[split_names$genus==split_names$subgenus];
+#paleodb_finds[paleodb_finds$occurrence_no %in% subgenus_finds$occurrence_no,] <- subgenus_finds;
+
+#eponymous_combos <- unique(split_names[split_names$genus==split_names$subgenus,]);
+#eponymous_combos$whole_name <- paste(eponymous_combos$genus," (",eponymous_combos$genus,")",sep="");
+#eponymous_combos$subgenus_no <- pbdb_taxonomy$taxon_no[match(eponymous_combos$whole_name,pbdb_taxonomy$taxon_name)];
+#eponymous_combos$parent_no <- pbdb_taxonomy$parent_no[match(eponymous_combos$whole_name,pbdb_taxonomy$taxon_name)];
+#eponymous_finds <- paleodb_finds[paleodb_finds$genus_no %in% eponymous_combos$parent_no,];
+#eponymous_finds$subgenus_no <- eponymous_combos$subgenus_no[match(eponymous_finds$genus_no,eponymous_combos$parent_no)];
+#paleodb_finds[match(eponymous_finds$occurrence_no,paleodb_finds$occurrence_no),] <- eponymous_finds;
+return(paleodb_finds);
+}
+
+# if we have Abra, Abra (Abra) and Abra (Syndosmya), then turn all Abra -> Abra (Abra)
+# if we have Abra, Abra (Abra) but no Abra (Syndosmya), then turn all Abra (Abra) -> Abra
+#paleodb_finds <- taphonomic_finds$epifaunal;
+make_subgenera_consistent <- function(paleodb_finds,pbdb_taxonomy)  {
+paleodb_finds <- paleodb_finds[order(paleodb_finds$occurrence_no),];
+paleodb_finds$subgenus_no[is.na(paleodb_finds$subgenus_no)] <- 0;
+paleodb_finds$genus[paleodb_finds$subgenus_no>0] <- pbdb_taxonomy$accepted_name[match(paleodb_finds$subgenus_no[paleodb_finds$subgenus_no>0],pbdb_taxonomy$taxon_no)]
+genus_name <- paleodb_finds$genus;
+split_names <- data.frame(base::t(pbapply::pbsapply(genus_name,divido_subgenus_names_from_genus_names)));
+colnames(split_names) <- c("genus","subgenus");
+rownames(split_names) <- NULL;
+split_names$occurrence_no <- paleodb_finds$occurrence_no;
+split_names$genus_no <- paleodb_finds$genus_no;
+split_names$subgenus_no <- paleodb_finds$subgenus_no;
+genera_w_subgenera <- split_names$genus[split_names$subgenus!=""];
+genera_only <- split_names[split_names$subgenus=="",];
+genera_only[genera_only$occurrence_no==14544,]
+subgenera_only <- split_names[split_names$subgenus!="",];
+
+# find those genera & subgenera with only Abra and Abra (Abra);
+novel_subgenera_only <- subgenera_only[subgenera_only$subgenus!=subgenera_only$genus,];
+eponymous_only <- subgenera_only[subgenera_only$subgenus==subgenera_only$genus,];
+# case where we have Abra and Abra (Abra) but nothing else
+eponymous_only <- eponymous_only[!eponymous_only$genus %in% novel_subgenera_only$genus,];
+eponymous_only$subgenus_no[!eponymous_only$genus %in% novel_subgenera_only$genus] <- 0;
+
+need_subgenus <- genera_only[genera_only$genus %in% novel_subgenera_only$genus,];
+need_subgenus$genus <- sapply(need_subgenus$genus,make_eponymous_subgenus);
+#need_subgenus[need_subgenus$occurrence_no==14544,]
+need_subgenus$subgenus_no <- pbdb_taxonomy$taxon_no[match(need_subgenus$genus,pbdb_taxonomy$taxon_name)]
+need_subgenus$subgenus_no[is.na(need_subgenus$subgenus_no)] <- need_subgenus$genus_no[is.na(need_subgenus$subgenus_no)];
+
+paleodb_finds$genus[paleodb_finds$occurrence_no %in% need_subgenus$occurrence_no] <- need_subgenus$genus;
+paleodb_finds$subgenus_no[paleodb_finds$occurrence_no %in% need_subgenus$occurrence_no] <- need_subgenus$subgenus_no;
+paleodb_finds$genus[paleodb_finds$occurrence_no %in% eponymous_only$occurrence_no] <- eponymous_only$genus;
+paleodb_finds$subgenus_no[paleodb_finds$occurrence_no %in% eponymous_only$occurrence_no] <- 0;
+
+return(paleodb_finds);
 }
 
 lump_eponymous_subgenera_try1 <- function(pbdb_finds,pbdb_taxonomy)  {
@@ -8306,12 +9069,14 @@ redate_paleodb_collections_with_time_scale <- function(paleodb_collections,time_
 
 if (length(unique(time_scale$scale))==1)	stratchron <- unique(time_scale$scale)[1];
 ncolls <- nrow(paleodb_collections);
+for (i in 1:ncol(paleodb_collections))	if (is.list(paleodb_collections[,i]))	paleodb_collections[,i] <- unlist(paleodb_collections[,i]);
 #e_a_l <- (1:ncolls)[paleodb_collections$late_interval!=""];
+paleodb_collections$late_interval[is.na(paleodb_collections$late_interval)] <- "";
 no_late <- (1:ncolls)[paleodb_collections$late_interval==""];
 paleodb_collections$late_interval[no_late] <- paleodb_collections$early_interval[no_late];
 
 # there are some zones used as stages: look for these!
-paleodb_collections$late_interval[paleodb_collections$late_interval=="unnamed Pridoli stage"] <- "Pridoli";
+paleodb_collections$late_interval[paleodb_collections$late_interval %in% "unnamed Pridoli stage"] <- "Pridoli";
 pbdb_intervals <- unique(c(paleodb_collections$early_interval,paleodb_collections$late_interval[paleodb_collections$late_interval!=""]));
 missing_pbdb_intervals <- pbdb_intervals[is.na(match(pbdb_intervals,time_scale$interval))];
 standard_time_scale <- subset(time_scale,time_scale$scale==stratchron);
@@ -8490,6 +9255,7 @@ for (uz in 1:length(unique_zones))	{
 
 	while (rc < nrow(relv_collections) && length(poss_zones)>0)	{
 		rc <- rc+1;
+		oc <- match(relv_collections$collection_no[rc],paleodb_collections$collection_no);
 		lb <- c(relv_collections$max_ma[rc],zone_database$ma_lb[poss_zones]);
 		ub <- c(relv_collections$min_ma[rc],zone_database$ma_ub[poss_zones]);
 		overlaps <- accersi_temporal_overlap_multiple_cases(lb,ub)[(2:length(lb))-1,];
@@ -8509,6 +9275,63 @@ for (uz in 1:length(unique_zones))	{
 
 return(paleodb_collections);
 }
+
+# added 2025-04-08 to alter "refined" dates based on zones
+redate_refined_paleodb_collections_with_zones <- function(paleodb_collections,zone_database,time_scale,emend_paleodb=TRUE)	{
+# paleodb_collections: dataframe of collections data downloaded from PaleoDB
+# zone_database: dataframe with
+#	dataframe$ma_lb: onset of zone (with 485.4 = 485.4 million years ago)
+#	dataframe$ma_ub: end of zone (with 443.4 = 443.4 million years ago)
+# chronostrat: dataframe with chronostratigraphic information.
+#	note: it helps to make this include onlyy the finest intervals
+# emend_paleodb: if TRUE, then ma_lb, ma_ub, early_interval & late_interval are edited
+#	if F, then ma_lb, ma_ub, interval_lb & interval_ub are appended to paleodb_collections
+
+ncolls <- nrow(paleodb_collections);
+coll_w_zones <- (1:ncolls)[paleodb_collections$zone!=""];
+zone <- paleodb_collections$zone[coll_w_zones];
+paleodb_collections$zone[coll_w_zones] <- pbapply::pbsapply(zone,mundus_zone);
+#for (cwz in 1:length(coll_w_zones))	test <- mundus_zone(zone=coll_w_zones[cwz]);
+coll_w_zones <- (1:ncolls)[paleodb_collections$zone!=""];
+unique_zones <- sort(unique(paleodb_collections$zone[coll_w_zones]));
+for (uz in 1:length(unique_zones))	{
+	poss_zones <- sort(unique(which(zone_database[,colnames(zone_database) %in% zone_fields]==unique_zones[uz],arr.ind=TRUE)[,1]));
+	if (length(poss_zones)==0)	{
+		multizones <- gsub(" -","-",unique_zones[uz]);
+		multizones <- gsub("- ","-",multizones);
+		multizones <- gsub("--","-",multizones);
+		multizones <- strsplit(multizones,"-")[[1]];
+		if (length(multizones)>1)	{
+			poss_zones <- c();
+			for (mz in 1:length(multizones))	poss_zones <- c(poss_zones,sort(unique(which(zone_database[,colnames(zone_database) %in% zone_fields]==multizones[mz],arr.ind=TRUE)[,1])));
+			}
+		}
+	relv_collections <- subset(paleodb_collections,paleodb_collections$zone==unique_zones[uz]);
+	rc <- 0;
+
+	while (rc < nrow(relv_collections) && length(poss_zones)>0)	{
+		rc <- rc+1;
+		oc <- match(relv_collections$collection_no[rc],paleodb_collections$collection_no);
+		lb <- c(relv_collections$ma_lb[rc],zone_database$ma_lb[poss_zones]);
+		ub <- c(relv_collections$ma_ub[rc],zone_database$ma_ub[poss_zones]);
+		overlaps <- accersi_temporal_overlap_multiple_cases(lb,ub)[(2:length(lb))-1,];
+		if (max(overlaps[,1]-overlaps[,2])>0)	{
+			zn <- match(max(overlaps[,1]-overlaps[,2]),overlaps[,1]-overlaps[,2]);
+			relv_collections$ma_lb[rc] <- min(relv_collections$ma_lb[rc],zone_database$ma_lb[poss_zones[zn]]);
+			relv_collections$ma_ub[rc] <- max(relv_collections$ma_ub[rc],zone_database$ma_ub[poss_zones[zn]]);
+			if (relv_collections$ma_lb[rc]==relv_collections$ma_ub[rc])	{
+				relv_collections$ma_lb[rc] <- zone_database$ma_lb[poss_zones[zn]];
+				relv_collections$ma_ub[rc] <- zone_database$ma_ub[poss_zones[zn]];
+				}
+			}
+		}
+	paleodb_collections$ma_lb[match(relv_collections$collection_no,paleodb_collections$collection_no)] <- relv_collections$ma_lb;
+	paleodb_collections$ma_ub[match(relv_collections$collection_no,paleodb_collections$collection_no)] <- relv_collections$ma_ub;
+	}
+
+return(paleodb_collections);
+}
+
 
 redate_paleodb_collections_with_zone_matches <- function(paleodb_collections,zone_matches,zone_database,time_scale,emend_paleodb=TRUE)	{
 # paleodb_collections: dataframe of collections data downloaded from PaleoDB
@@ -8747,6 +9570,47 @@ if (nrow(this_coll_finds) > 0)	{
 	}
 }
 
+# written 2025-04-30 to use taxonomic database, too.
+# paleodb_finds <- interval_finds; coll_id <- interval_sites$collection_no[zoneless[nz]];
+revelare_zone_taxa_in_pbdb_finds_deluxe <- function(coll_id,paleodb_finds,zone_database,pbdb_taxonomy)	{
+# zone_database: database of biozones with
+#	zone_database$zone: eponymous taxon
+#	zone_database$zone_sr: senior synonym of zone taxon (or whole zone)
+#	zone_database$genus_species_combo: name omitting subgenus (=Zone if no subgenus)
+#	zone_database$subgenus_species_combo: name treating subgenus as genus (=Zone if no subgenus)
+#	zone_database$ma_lb: onset of zone (with 485 meaning 485 million years ago)
+#	zone_database$ma_ub: end of zone (with 443 meaning 443 million years ago)
+this_coll_finds <- paleodb_finds[paleodb_finds$collection_no %in% coll_id,];
+#this_coll_finds$flags <-""; this_coll_finds$identified_name[2] <- this_coll_finds$accepted_name[2] <- "Ptychagnostus gibbus"
+# prepare to separate out just species occurrences
+this_coll_finds$identified_rank[this_coll_finds$identified_rank=="subspecies"] <- "species"
+this_coll_finds$accepted_rank[this_coll_finds$accepted_rank=="subspecies"] <- "species"
+this_coll_finds <- subset(this_coll_finds,this_coll_finds$identified_rank=="species");
+this_coll_finds <- this_coll_finds[!this_coll_finds$flags %in% c("uncertain species","uncertain genus, uncertain species"),];
+poss_zones <- zone_database[1,];
+poss_zones <- poss_zones[poss_zones$record_no<0,];
+if (nrow(this_coll_finds) > 0)	{
+	taxon_name <- unique(c(this_coll_finds$identified_name[this_coll_finds$identified_rank %in% c("species","subspecies")],this_coll_finds$accepted_name[this_coll_finds$accepted_rank %in% c("species","subspecies")]));
+#	taxon_name[this_coll_finds$accepted_rank=="species"] <- this_coll_finds$accepted_name[this_coll_finds$accepted_rank=="species"];
+	taxon_name <- sapply(taxon_name,mundify_taxon_names);
+	entered_names <- taxon_name[!is.na(match(taxon_name,pbdb_taxonomy$taxon_name))];
+	all_taxon_names <- unique(c(taxon_name,pbdb_taxonomy$taxon_name[pbdb_taxonomy$accepted_name %in% pbdb_taxonomy$accepted_name[match(entered_names,pbdb_taxonomy$taxon_name)]]));
+	# replace identified name with species name if we have taxonomic data
+	poss_zones <- c();
+#	for (tn in 1:length(taxon_name))
+#		poss_zones <- c(poss_zones,match_one_collection_zone_to_zone_database(zone=taxon_name[tn],zone_database));
+	for (at in 1:length(all_taxon_names))	{
+#		poss_zones <- c(poss_zones,match_one_collection_zone_to_zone_database(zone=all_taxon_names[tn],zone_database));
+		poss_zones <- rbind(poss_zones,zone_database[gsub(all_taxon_names[at],"",zone_database$zone)!=zone_database$zone,]);
+		}
+	poss_zones <- unique(poss_zones);
+#	return(paste(poss_zones[poss_zones!=""],collapse=";"));
+#	} else	{
+#	return("");
+	}
+return(poss_zones);
+}
+
 # compare zones from PaleoDB collections to a zone database
 match_paleodb_collections_to_possible_zones <- function(paleodb_collections,zone_database,paleodb_finds)	{
 # zone_database: database of biozones with
@@ -8957,7 +9821,7 @@ return(cbind(entered_formations,entered_members));
 # study: name of study (anything you like)
 # collections: downloaded PaleoDB data.  MUST include:
 #	collection_no
-#	formation, member and stratgroup
+#	formation, member and geological_group
 #	zone
 # external_strat_database: name of an external database giving detailed information on rocks.
 # MUST give:
@@ -9496,14 +10360,26 @@ if (external_strat_database!="")	{
 	file_type <- revelare_file_type(filename = external_strat_database);
 	if (file_type=="csv")	{
 		wagner_rocks <- read.csv(file=external_strat_database,header=TRUE,stringsAsFactors=FALSE,encoding="UTF-8");
+		}	else if (file_type=="xlsx")	{
+		options(warn=0);
+		wagner_rocks <- data.frame(readxl::read_xlsx(external_strat_database));
+		options(warn=1);
 		}	else	{
-		wagner_rocks <- read.table(file=rock_unit_database,header=TRUE,stringsAsFactors=FALSE,sep="\t");
+		wagner_rocks <- read.table(file=external_strat_database,header=TRUE,stringsAsFactors=FALSE,sep="\t");
 		}
 	wagner_rocks$rock_no_sr <- as.numeric(wagner_rocks$rock_no_sr);
 	wagner_rocks$rock_no <- as.numeric(wagner_rocks$rock_no);
 	wagner_rocks$formation_no <- as.numeric(wagner_rocks$formation_no);
 	wagner_rocks$ma_lb <- as.numeric(wagner_rocks$ma_lb);
 	wagner_rocks$ma_ub <- as.numeric(wagner_rocks$ma_ub);
+	wagner_rocks$formation[is.na(wagner_rocks$formation)] <- "";
+	wagner_rocks$member[is.na(wagner_rocks$member)] <- "";
+	wagner_rocks$group[is.na(wagner_rocks$group)] <- "";
+	wagner_rocks$geoplate[is.na(wagner_rocks$geoplate)] <- 0;
+	wagner_rocks$realm[is.na(wagner_rocks$realm)] <- "";
+	wagner_rocks$region[is.na(wagner_rocks$region)] <- "";
+	wagner_rocks$province[is.na(wagner_rocks$province)] <- "";
+#	which(is.na(wagner_rocks),arr.ind = TRUE)
 	}	else	{
 	wagner_rocks <- rock_unit_data$rock_unit_database;
 	}
@@ -9529,16 +10405,18 @@ wagner_rocks$formation[groups_only_nos] <- wagner_rocks$member[groups_only_nos] 
 
 named_rock_unit <- as.character(wagner_rocks$formation);
 print("Cleaning Formation Names...");
+#for (i in 1:length(named_rock_unit))	x <- mundify_rock_unit_names(named_rock_unit[i],dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal = FALSE)
 formation_clean_basic <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal = FALSE);
 formation_clean_no_rock <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = TRUE,delete_informal = FALSE);
 formation_clean_no_rock_formal <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = TRUE,delete_informal = TRUE);
-member_clean_basic <- as.character(wagner_rocks$member);
-member_ided <- (1:n_rocks)[wagner_rocks$member!=""];
-named_rock_unit <- as.character(member_clean_basic[member_ided]);
 #xxx <- c();
 #for (nru in 1:length(named_rock_unit))
 #	xxx <- c(xxx,mundify_rock_unit_names(named_rock_unit = named_rock_unit[nru],dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal = FALSE))
 print("Cleaning Member Names...");
+member_clean_basic <- as.character(wagner_rocks$member);
+member_ided <- (1:n_rocks)[wagner_rocks$member!=""];
+named_rock_unit <- as.character(member_clean_basic[member_ided]);
+#for (i in 1:length(named_rock_unit))	x <- mundify_rock_unit_names(named_rock_unit[i],dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal = FALSE)
 member_clean_basic[member_ided] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal = FALSE);
 member_clean_no_rock <- member_clean_no_rock_formal <- member_clean_basic;
 member_clean_no_rock[member_ided] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = TRUE,delete_informal = FALSE);
@@ -9576,8 +10454,8 @@ return(wagner_rocks);
 # modified 2020-03-09
 accersi_rock_unit_thesaurus_given_paleodb_collections	<- function(paleodb_rocks)	{
 # standardize group usage (these often are not entered)
-if (is.na(match("group",colnames(paleodb_rocks))) && !is.na(match("stratgroup",colnames(paleodb_rocks))))
-	colnames(paleodb_rocks)[match("stratgroup",colnames(paleodb_rocks))] <- "group";
+if (is.na(match("group",colnames(paleodb_rocks))) && !is.na(match("geological_group",colnames(paleodb_rocks))))
+	colnames(paleodb_rocks)[match("geological_group",colnames(paleodb_rocks))] <- "group";
 formation_names <- unique(paleodb_rocks$formation[paleodb_rocks$formation!=""]);
 for (fn in 1:length(formation_names))	{
 	named_rock_unit <- paleodb_rocks$group[paleodb_rocks$formation==formation_names[fn]];
@@ -9710,10 +10588,10 @@ for (ur in 1:length(unique_rocks))	{
 		organized_rocks$ma_ub[syns] <- as.numeric(organized_rocks$ma_ub[syns[oldest]]);
 
 		if (length(unique(organized_rocks$group[syns]))>1)	{
-			stratgroup <- unique(organized_rocks$group[syns]);
-			stratgroup <- stratgroup[stratgroup!=""];
-			if (length(stratgroup)==1)
-				organized_rocks$group[syns] <- stratgroup;
+			geological_group <- unique(organized_rocks$group[syns]);
+			geological_group <- geological_group[geological_group!=""];
+			if (length(geological_group)==1)
+				organized_rocks$group[syns] <- geological_group;
 			}
 		}
 	}
@@ -9772,7 +10650,7 @@ colls_w_formations <- (1:ncolls)[paleodb_collections$formation!=""];
 colls_w_members <- (1:ncolls)[paleodb_collections$member!=""];
 colls_w_formations_and_members <- colls_w_formations[colls_w_formations %in% colls_w_members];
 colls_w_members_only <- colls_w_members[!colls_w_members %in% colls_w_formations];
-colls_w_groups <- (1:ncolls)[paleodb_collections$stratgroup!=""];
+colls_w_groups <- (1:ncolls)[paleodb_collections$geological_group!=""];
 colls_w_groups_only <- colls_w_groups[!colls_w_groups %in% c(colls_w_formations,colls_w_members_only)];
 colls_w_rocks <- sort(unique(c(colls_w_formations,colls_w_members,colls_w_groups)));
 
@@ -9788,8 +10666,8 @@ paleodb_clean_rock_unit_basic <- paleodb_clean_formation_basic;
 paleodb_clean_rock_unit_basic[colls_w_formations_and_members] <- paste(paleodb_clean_formation_basic[colls_w_formations_and_members]," (",paleodb_clean_member_basic[colls_w_formations_and_members],")",sep="");
 paleodb_clean_rock_unit_basic[colls_w_members_only] <- paleodb_clean_member_basic[colls_w_members_only];
 
-paleodb_clean_group_basic <- paleodb_collections$stratgroup;
-named_rock_unit <- paleodb_collections$stratgroup[colls_w_groups];
+paleodb_clean_group_basic <- paleodb_collections$geological_group;
+named_rock_unit <- paleodb_collections$geological_group[colls_w_groups];
 paleodb_clean_group_basic[colls_w_groups] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE);
 
 paleodb_clean_formation_no_rock <- paleodb_collections$formation;
@@ -9805,8 +10683,8 @@ qqq <- colls_w_formations_and_members[paleodb_clean_member_no_rock[colls_w_forma
 paleodb_clean_rock_unit_no_rock[qqq] <- paste(paleodb_clean_formation_no_rock[qqq]," (",paleodb_clean_member_no_rock[qqq],")",sep="");
 paleodb_clean_rock_unit_no_rock[colls_w_members_only] <- paleodb_clean_member_no_rock[colls_w_members_only];
 
-paleodb_clean_group_no_rock <- paleodb_collections$stratgroup;
-named_rock_unit <- paleodb_collections$stratgroup[colls_w_groups];
+paleodb_clean_group_no_rock <- paleodb_collections$geological_group;
+named_rock_unit <- paleodb_collections$geological_group[colls_w_groups];
 paleodb_clean_group_no_rock[colls_w_groups] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type=TRUE);
 
 cleaned_rocks <- data.frame(paleodb_clean_formation_basic=as.character(paleodb_clean_formation_basic),paleodb_clean_member_basic=as.character(paleodb_clean_member_basic),paleodb_clean_group_basic=as.character(paleodb_clean_group_basic),paleodb_clean_formation_no_rock=as.character(paleodb_clean_formation_no_rock),paleodb_clean_member_no_rock=as.character(paleodb_clean_member_no_rock),paleodb_clean_group_no_rock=as.character(paleodb_clean_group_no_rock),paleodb_clean_rock_unit_basic=as.character(paleodb_clean_rock_unit_basic),paleodb_clean_rock_unit_no_rock=as.character(paleodb_clean_rock_unit_no_rock),stringsAsFactors=hell_no);
@@ -9895,7 +10773,7 @@ colls_w_formations <- (1:ncolls)[paleodb_collections$formation!=""];
 colls_w_members <- (1:ncolls)[paleodb_collections$member!=""];
 colls_w_formations_and_members <- colls_w_formations[colls_w_formations %in% colls_w_members];
 colls_w_members_only <- colls_w_members[!colls_w_members %in% colls_w_formations];
-colls_w_groups <- (1:ncolls)[paleodb_collections$stratgroup!=""];
+colls_w_groups <- (1:ncolls)[paleodb_collections$geological_group!=""];
 colls_w_groups_only <- colls_w_groups[!colls_w_groups %in% c(colls_w_formations,colls_w_members_only)];
 colls_w_rocks <- sort(unique(c(colls_w_formations,colls_w_members,colls_w_groups)));
 
@@ -9911,8 +10789,8 @@ paleodb_clean_rock_unit_basic <- paleodb_clean_formation_basic;
 paleodb_clean_rock_unit_basic[colls_w_formations_and_members] <- paste(paleodb_clean_formation_basic[colls_w_formations_and_members]," (",paleodb_clean_member_basic[colls_w_formations_and_members],")",sep="");
 paleodb_clean_rock_unit_basic[colls_w_members_only] <- paleodb_clean_member_basic[colls_w_members_only];
 
-paleodb_clean_group_basic <- paleodb_collections$stratgroup;
-named_rock_unit <- paleodb_collections$stratgroup[colls_w_groups];
+paleodb_clean_group_basic <- paleodb_collections$geological_group;
+named_rock_unit <- paleodb_collections$geological_group[colls_w_groups];
 paleodb_clean_group_basic[colls_w_groups] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE);
 
 paleodb_clean_formation_no_rock <- paleodb_collections$formation;
@@ -9928,8 +10806,8 @@ qqq <- colls_w_formations_and_members[paleodb_clean_member_no_rock[colls_w_forma
 paleodb_clean_rock_unit_no_rock[qqq] <- paste(paleodb_clean_formation_no_rock[qqq]," (",paleodb_clean_member_no_rock[qqq],")",sep="");
 paleodb_clean_rock_unit_no_rock[colls_w_members_only] <- paleodb_clean_member_no_rock[colls_w_members_only];
 
-paleodb_clean_group_no_rock <- paleodb_collections$stratgroup;
-named_rock_unit <- paleodb_collections$stratgroup[colls_w_groups];
+paleodb_clean_group_no_rock <- paleodb_collections$geological_group;
+named_rock_unit <- paleodb_collections$geological_group[colls_w_groups];
 paleodb_clean_group_no_rock[colls_w_groups] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type=TRUE);
 
 cleaned_rocks <- data.frame(paleodb_clean_formation_basic=as.character(paleodb_clean_formation_basic),paleodb_clean_member_basic=as.character(paleodb_clean_member_basic),paleodb_clean_group_basic=as.character(paleodb_clean_group_basic),paleodb_clean_formation_no_rock=as.character(paleodb_clean_formation_no_rock),paleodb_clean_member_no_rock=as.character(paleodb_clean_member_no_rock),paleodb_clean_group_no_rock=as.character(paleodb_clean_group_no_rock),paleodb_clean_rock_unit_basic=as.character(paleodb_clean_rock_unit_basic),paleodb_clean_rock_unit_no_rock=as.character(paleodb_clean_rock_unit_no_rock),stringsAsFactors=hell_no);
@@ -10275,11 +11153,11 @@ return(paleodb_collections);
 }
 
 organize_pbdb_rock_data_old <- function(paleodb_collections)	{
-pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$stratgroup),
+pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$geological_group),
 								formation=as.character(paleodb_collections$formation),
 								member=as.character(paleodb_collections$member),stringsAsFactors = F));
 if (!is.null(paleodb_collections$formation_alt))	{
-	dummy <- unique(data.frame(group=as.character(paleodb_collections$stratgroup_alt),
+	dummy <- unique(data.frame(group=as.character(paleodb_collections$geological_group_alt),
 							   formation=as.character(paleodb_collections$formation_alt),
 							   member=as.character(paleodb_collections$member_alt),stringsAsFactors = F));
 	pbdb_rocks <- unique(rbind(pbdb_rocks,dummy));
@@ -10302,8 +11180,8 @@ paleodb_collections$full_name <- paleodb_collections$formation;
 paleodb_collections$full_name[paleodb_collections$member!=""] <- paste(paleodb_collections$formation[paleodb_collections$member!=""]," (",paleodb_collections$member[paleodb_collections$member!=""],")",sep="");
 members_only <- (1:nsites)[(paleodb_collections$member!="") & (paleodb_collections$formation=="")];
 paleodb_collections$full_name[members_only] <- paste("(",paleodb_collections$member[members_only],")",sep="");
-group_only <- (1:nsites)[paleodb_collections$stratgroup!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
-paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$stratgroup[group_only],"]",sep="");
+group_only <- (1:nsites)[paleodb_collections$geological_group!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
+paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$geological_group[group_only],"]",sep="");
 
 unique_full_names <- unique(pbdb_rocks$full_name);
 kill_me <- dups <- c();
@@ -10316,19 +11194,19 @@ for (ur in 1:length(unique_full_names))	{
 		if (sum(this_case$group!="")>1)	{
 			this_case <- subset(this_case,this_case$group!="");
 			these_rock_collections <- subset(paleodb_collections,paleodb_collections$full_name==unique_full_names[ur]);
-			these_rock_collections <- subset(these_rock_collections,these_rock_collections$stratgroup!="");
-			relv_groups <- unique(these_rock_collections$stratgroup);
+			these_rock_collections <- subset(these_rock_collections,these_rock_collections$geological_group!="");
+			relv_groups <- unique(these_rock_collections$geological_group);
 			for (rg in 1:(length(relv_groups)-1))	{
 				gr <- rg;
-				lb_a <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[rg]];
-				ub_a <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[rg]];
+				lb_a <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[rg]];
+				ub_a <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[rg]];
 				while (gr < length(relv_groups))	{
 					gr <- gr+1;
-					lb_b <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[gr]];
-					ub_b <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[gr]];
+					lb_b <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[gr]];
+					ub_b <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[gr]];
 					if (do_two_ranges_overlap(lb_a,ub_a,lb_b,ub_b))	{
 						# if they overlap, then eliminate the one last used longest ago
-						if (max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[gr]]))	{
+						if (max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[gr]]))	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[rg],rownames(pbdb_rocks))));
 							} else	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[gr],rownames(pbdb_rocks))));
@@ -10381,7 +11259,7 @@ return(output);
 }
 
 #paleodb_zone_info <- match_collections_zones_to_zone_database(collections,zone_database);
-#test <- subset(rocks,rocks$stratgroup=="Honda")
+#test <- subset(rocks,rocks$geological_group=="Honda")
 # construct a database of rock units from the PaleoDB
 #	returns two tables: one for rock units, and another for zones to which rock units are assigned.
 # modified 2020-02-15
@@ -10398,16 +11276,16 @@ construct_stratigraphic_data_base_from_paleodb <- function(taxa,onset="Cambrian"
 # output_type: ".csv" for ".csv"; ".txt" or ".tab" or ".xls" for tab-delimited
 rocks <- accersi_rock_unit_data(taxa,onset,end,standardize_members = FALSE,directory,save_files=FALSE);
 ncolls <- nrow(rocks);
-rocks <- rocks[order(rocks$formation,rocks$member,rocks$zone,rocks$stratgroup),];
+rocks <- rocks[order(rocks$formation,rocks$member,rocks$zone,rocks$geological_group),];
 has_formation <- (1:ncolls)[rocks$formation!=""];
-has_group <- (1:ncolls)[rocks$stratgroup!=""];
+has_group <- (1:ncolls)[rocks$geological_group!=""];
 has_member <- (1:ncolls)[rocks$member!=""];
 keepers <- sort(unique(c(has_formation,has_group,has_member)));
 rocks <- rocks[keepers,];
 
 ncolls <- nrow(rocks);
 has_formation <- (1:ncolls)[rocks$formation!=""];
-has_group <- (1:ncolls)[rocks$stratgroup!=""];
+has_group <- (1:ncolls)[rocks$geological_group!=""];
 has_member <- (1:ncolls)[rocks$member!=""];
 has_zone <- (1:ncolls)[rocks$zone!=""];
 has_group_only <- has_group[!has_group %in% has_formation];
@@ -10419,8 +11297,8 @@ formation_entered[has_formation] <- sapply(named_rock_unit,mundify_rock_unit_nam
 member_entered <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_entered[has_member] <- sapply(named_rock_unit,mundify_rock_unit_names);
-group_entered <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_entered <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_entered[has_group] <- sapply(named_rock_unit,mundify_rock_unit_names);
 
 zone <- rocks$zone;
@@ -10432,8 +11310,8 @@ formation_dehyph[has_formation] <- sapply(named_rock_unit,mundify_rock_unit_name
 member_dehyph <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_dehyph[has_member] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE);
-group_dehyph <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_dehyph <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_dehyph[has_group] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE);
 
 formation_rockless <- rocks$formation;
@@ -10442,8 +11320,8 @@ formation_rockless[has_formation] <- sapply(named_rock_unit,mundify_rock_unit_na
 member_rockless <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_rockless[has_member] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE);
-group_rockless <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_rockless <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_rockless[has_group] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE);
 
 formation_rockless_formal <- rocks$formation;
@@ -10452,8 +11330,8 @@ formation_rockless_formal[has_formation] <- sapply(named_rock_unit,mundify_rock_
 member_rockless_formal <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_rockless_formal[has_member] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE,delete_informal=TRUE);
-group_rockless_formal <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_rockless_formal <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_rockless_formal[has_group] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE,delete_informal=TRUE);
 
 rock_base <- data.frame(formation=as.character(formation_entered),member=as.character(member_entered),group=as.character(group_entered),
@@ -10629,17 +11507,17 @@ construct_stratigraphic_data_base_from_paleodb_collections <- function(paleodb_c
 # paleodb_collections: data.frame of collections data from PaleoDB
 rocks <- accersi_rock_unit_data_from_paleodb_collections(paleodb_collections,standardize_members = TRUE);
 nrock_combos <- nrow(rocks);
-rocks <- rocks[order(rocks$formation,rocks$member,rocks$zone,rocks$stratgroup,-rocks$max_ma),];
+rocks <- rocks[order(rocks$formation,rocks$member,rocks$zone,rocks$geological_group,-rocks$max_ma),];
 has_formation <- (1:nrock_combos)[rocks$formation!=""];
-has_group <- (1:nrock_combos)[rocks$stratgroup!=""];
+has_group <- (1:nrock_combos)[rocks$geological_group!=""];
 has_member <- (1:nrock_combos)[rocks$member!=""];
 keepers <- sort(unique(c(has_formation,has_group,has_member)));	# keep only information with rock names
 rocks <- rocks[keepers,];
-rocks <- rocks[order(rocks$formation,rocks$member,rocks$stratgroup,-rocks$max_ma),];
+rocks <- rocks[order(rocks$formation,rocks$member,rocks$geological_group,-rocks$max_ma),];
 # redo numbering without unnamed rocks
 nrock_combos <- nrow(rocks);
 has_formation <- (1:nrock_combos)[rocks$formation!=""];
-has_group <- (1:nrock_combos)[rocks$stratgroup!=""];
+has_group <- (1:nrock_combos)[rocks$geological_group!=""];
 has_member <- (1:nrock_combos)[rocks$member!=""];
 has_zone <- (1:nrock_combos)[rocks$zone!=""];
 has_group_only <- has_group[!has_group %in% has_formation];
@@ -10653,8 +11531,8 @@ member_entered <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 print("Cleaning Member Names");
 member_entered[has_member] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names);
-group_entered <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_entered <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 print("Cleaning Group Names");
 group_entered[has_group] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names);
 
@@ -10669,8 +11547,8 @@ formation_dehyph[has_formation] <- pbapply::pbsapply(named_rock_unit,mundify_roc
 member_dehyph <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_dehyph[has_member] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE);
-group_dehyph <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_dehyph <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_dehyph[has_group] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE);
 
 formation_rockless <- rocks$formation;
@@ -10679,8 +11557,8 @@ formation_rockless[has_formation] <- pbapply::pbsapply(named_rock_unit,mundify_r
 member_rockless <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_rockless[has_member] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE);
-group_rockless <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_rockless <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_rockless[has_group] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE);
 
 formation_rockless_formal <- rocks$formation;
@@ -10689,8 +11567,8 @@ formation_rockless_formal[has_formation] <- pbapply::pbsapply(named_rock_unit,mu
 member_rockless_formal <- rocks$member;
 named_rock_unit <- rocks$member[has_member];
 member_rockless_formal[has_member] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE,delete_informal=TRUE);
-group_rockless_formal <- rocks$stratgroup;
-named_rock_unit <- rocks$stratgroup[has_group];
+group_rockless_formal <- rocks$geological_group;
+named_rock_unit <- rocks$geological_group[has_group];
 group_rockless_formal[has_group] <- pbapply::pbsapply(named_rock_unit,mundify_rock_unit_names,dehyphenate = TRUE,delete_rock_type = TRUE,delete_informal=TRUE);
 
 # rock_base has all of the combinations of rock units, intervals and zones.
@@ -11006,7 +11884,7 @@ if (is.data.frame(zone_database))	{
 						# if this is a younger stratigraphic interval than the PaleoDB originally allowed, then change it IF there are not
 						#	unzoned collections that make it older
 						if (time_scale$ma_ub[match(rock_database$interval_lb[rn],time_scale$interval)] > zone_database$ma_lb[oldest_zone])	{
-							other_colls <- (1:nrow(paleodb_collections))[paleodb_collections$stratgroup==group_names[gg]]
+							other_colls <- (1:nrow(paleodb_collections))[paleodb_collections$geological_group==group_names[gg]]
 							zoneless <- other_colls[paleodb_collections$zone[other_colls]==""];
 							if (length(zoneless)>0 && max(time_scale$ma_ub[match(paleodb_collections$early_interval[zoneless],time_scale$interval)]) < zone_database$ma_lb[oldest_zone])	{
 								rock_database$ma_lb[rn] <- zone_database$ma_lb[oldest_zone];
@@ -11022,7 +11900,7 @@ if (is.data.frame(zone_database))	{
 						#	unzoned collections that make it younger
 						rock_database$ma_ub[rn] <- zone_database$ma_ub[youngest_zone];
 						if (time_scale$ma_lb[match(rock_database$interval_ub[rn],time_scale$interval)] < zone_database$ma_ub[youngest_zone])	{
-							other_colls <- (1:nrow(paleodb_collections))[paleodb_collections$stratgroup==group_names[gg]]
+							other_colls <- (1:nrow(paleodb_collections))[paleodb_collections$geological_group==group_names[gg]]
 							zoneless <- other_colls[paleodb_collections$zone[other_colls]==""];
 							if (length(zoneless)>0 && min(time_scale$ma_lb[match(paleodb_collections$late_interval[zoneless],time_scale$interval)]) < zone_database$ma_lb[youngest_zone])	{
 								rock_database$ma_ub[rn] <- zone_database$ma_ub[youngest_zone];
@@ -11069,7 +11947,7 @@ for (uf in 1:length(unique_formations))	{
 n_coll <- nrow(collections);
 paleodb_coll_w_formation <- (1:n_coll)[collections$formation!=""];
 paleodb_coll_w_member <- (1:n_coll)[collections$member!=""];
-paleodb_coll_w_group <- (1:n_coll)[collections$stratgroup!=""];
+paleodb_coll_w_group <- (1:n_coll)[collections$geological_group!=""];
 paleodb_coll_w_formation_and_member <- paleodb_coll_w_member[paleodb_coll_w_member %in% paleodb_coll_w_formation];
 paleodb_coll_w_member_only <-  paleodb_coll_w_member[!paleodb_coll_w_member %in% paleodb_coll_w_formation];
 paleodb_coll_w_formation_only <- paleodb_coll_w_formation[!paleodb_coll_w_formation %in% paleodb_coll_w_member];
@@ -11117,7 +11995,7 @@ paleodb_clean_rock_unit_no_rock_formal <- paleodb_clean_formation_no_rock_formal
 paleodb_clean_rock_unit_no_rock_formal[paleodb_coll_w_member_only_nr_f] <- paleodb_clean_member_no_rock_formal[paleodb_coll_w_member_only_nr_f];
 paleodb_clean_rock_unit_no_rock_formal[paleodb_coll_w_formation_and_member_nr_f] <- paste(paleodb_clean_formation_no_rock_formal[paleodb_coll_w_formation_and_member_nr_f]," (",paleodb_clean_member_no_rock_formal[paleodb_coll_w_formation_and_member_nr_f],")",sep="");
 
-paleodb_clean_group_basic <- paleodb_clean_group_no_rock <- paleodb_clean_group_no_rock_formal <- collections$stratgroup;
+paleodb_clean_group_basic <- paleodb_clean_group_no_rock <- paleodb_clean_group_no_rock_formal <- collections$geological_group;
 named_rock_unit <- paleodb_clean_group_basic[paleodb_coll_w_group];
 paleodb_clean_group_basic[paleodb_coll_w_group] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = FALSE,delete_informal=FALSE);
 paleodb_clean_group_no_rock[paleodb_coll_w_group] <- sapply(named_rock_unit,mundify_rock_unit_names,dehyphenate=TRUE,delete_rock_type = TRUE,delete_informal=FALSE);
@@ -11793,11 +12671,11 @@ return(faunal_list);
 organize_pbdb_rock_data <- function(paleodb_collections,geosplit=F,max_gap=25)	{
 # max_gap: biggest gap allowed for two sets of sites with same name on same continent to be considered the same rock unit
 print("Allocating rock thesaurus data.frame.")
-pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$stratgroup),
+pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$geological_group),
 								formation=as.character(paleodb_collections$formation),
 								member=as.character(paleodb_collections$member),stringsAsFactors = F));
 if (!is.null(paleodb_collections$formation_alt))	{
-	dummy <- unique(data.frame(group=as.character(paleodb_collections$stratgroup_alt),
+	dummy <- unique(data.frame(group=as.character(paleodb_collections$geological_group_alt),
 							   formation=as.character(paleodb_collections$formation_alt),
 							   member=as.character(paleodb_collections$member_alt),stringsAsFactors = F));
 	pbdb_rocks <- unique(rbind(pbdb_rocks,dummy));
@@ -11822,8 +12700,8 @@ paleodb_collections$full_name <- paleodb_collections$formation;
 paleodb_collections$full_name[paleodb_collections$member!=""] <- paste(paleodb_collections$formation[paleodb_collections$member!=""]," (",paleodb_collections$member[paleodb_collections$member!=""],")",sep="");
 members_only <- (1:nsites)[(paleodb_collections$member!="") & (paleodb_collections$formation=="")];
 paleodb_collections$full_name[members_only] <- paste("(",paleodb_collections$member[members_only],")",sep="");
-group_only <- (1:nsites)[paleodb_collections$stratgroup!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
-paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$stratgroup[group_only],"]",sep="");
+group_only <- (1:nsites)[paleodb_collections$geological_group!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
+paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$geological_group[group_only],"]",sep="");
 
 unique_full_names <- unique(pbdb_rocks$full_name);
 kill_me <- dups <- c(); u_f_n <- length(unique_full_names);
@@ -11834,21 +12712,21 @@ for (ur in 1:u_f_n)	{
 		if (sum(this_case$group!="")>1)	{
 			this_case <- subset(this_case,this_case$group!="");
 			these_rock_collections <- subset(paleodb_collections,paleodb_collections$full_name==unique_full_names[ur]);
-			these_rock_collections <- subset(these_rock_collections,these_rock_collections$stratgroup!="");
-			relv_groups <- unique(these_rock_collections$stratgroup);
+			these_rock_collections <- subset(these_rock_collections,these_rock_collections$geological_group!="");
+			relv_groups <- unique(these_rock_collections$geological_group);
 			rg <- 0;
 			while (rg < (length(relv_groups)-1))	{
 				rg <- rg+1;
 				gr <- rg;
-				lb_a <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[rg]];
-				ub_a <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[rg]];
+				lb_a <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[rg]];
+				ub_a <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[rg]];
 				while (gr < length(relv_groups))	{
 					gr <- gr+1;
-					lb_b <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[gr]];
-					ub_b <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[gr]];
+					lb_b <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[gr]];
+					ub_b <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[gr]];
 					if (do_two_ranges_overlap(lb_a,ub_a,lb_b,ub_b))	{
 						# if they overlap, then eliminate the one last used longest ago
-						if (max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[gr]]))	{
+						if (max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[gr]]))	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[rg],rownames(pbdb_rocks))));
 							} else	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[gr],rownames(pbdb_rocks))));
@@ -11990,11 +12868,11 @@ return(output);
 organize_paleoreef_formation_data <- function(paleoreefs,geosplit=F,max_gap=25)	{
 # max_gap: biggest gap allowed for two sets of sites with same name on same continent to be considered the same rock unit
 print("Allocating rock thesaurus data.frame.")
-pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$stratgroup),
+pbdb_rocks <- unique(data.frame(group=as.character(paleodb_collections$geological_group),
 								formation=as.character(paleodb_collections$formation),
 								member=as.character(paleodb_collections$member),stringsAsFactors = F));
 if (!is.null(paleodb_collections$formation_alt))	{
-	dummy <- unique(data.frame(group=as.character(paleodb_collections$stratgroup_alt),
+	dummy <- unique(data.frame(group=as.character(paleodb_collections$geological_group_alt),
 							   formation=as.character(paleodb_collections$formation_alt),
 							   member=as.character(paleodb_collections$member_alt),stringsAsFactors = F));
 	pbdb_rocks <- unique(rbind(pbdb_rocks,dummy));
@@ -12019,8 +12897,8 @@ paleodb_collections$full_name <- paleodb_collections$formation;
 paleodb_collections$full_name[paleodb_collections$member!=""] <- paste(paleodb_collections$formation[paleodb_collections$member!=""]," (",paleodb_collections$member[paleodb_collections$member!=""],")",sep="");
 members_only <- (1:nsites)[(paleodb_collections$member!="") & (paleodb_collections$formation=="")];
 paleodb_collections$full_name[members_only] <- paste("(",paleodb_collections$member[members_only],")",sep="");
-group_only <- (1:nsites)[paleodb_collections$stratgroup!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
-paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$stratgroup[group_only],"]",sep="");
+group_only <- (1:nsites)[paleodb_collections$geological_group!="" & (paleodb_collections$member=="") & (paleodb_collections$formation=="")];
+paleodb_collections$full_name[group_only] <- paste("[",paleodb_collections$geological_group[group_only],"]",sep="");
 
 unique_full_names <- unique(pbdb_rocks$full_name);
 kill_me <- dups <- c(); u_f_n <- length(unique_full_names);
@@ -12031,21 +12909,21 @@ for (ur in 1:u_f_n)	{
 		if (sum(this_case$group!="")>1)	{
 			this_case <- subset(this_case,this_case$group!="");
 			these_rock_collections <- subset(paleodb_collections,paleodb_collections$full_name==unique_full_names[ur]);
-			these_rock_collections <- subset(these_rock_collections,these_rock_collections$stratgroup!="");
-			relv_groups <- unique(these_rock_collections$stratgroup);
+			these_rock_collections <- subset(these_rock_collections,these_rock_collections$geological_group!="");
+			relv_groups <- unique(these_rock_collections$geological_group);
 			rg <- 0;
 			while (rg < (length(relv_groups)-1))	{
 				rg <- rg+1;
 				gr <- rg;
-				lb_a <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[rg]];
-				ub_a <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[rg]];
+				lb_a <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[rg]];
+				ub_a <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[rg]];
 				while (gr < length(relv_groups))	{
 					gr <- gr+1;
-					lb_b <- these_rock_collections$max_ma[these_rock_collections$stratgroup==relv_groups[gr]];
-					ub_b <- these_rock_collections$min_ma[these_rock_collections$stratgroup==relv_groups[gr]];
+					lb_b <- these_rock_collections$max_ma[these_rock_collections$geological_group==relv_groups[gr]];
+					ub_b <- these_rock_collections$min_ma[these_rock_collections$geological_group==relv_groups[gr]];
 					if (do_two_ranges_overlap(lb_a,ub_a,lb_b,ub_b))	{
 						# if they overlap, then eliminate the one last used longest ago
-						if (max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$stratgroup==relv_groups[gr]]))	{
+						if (max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[rg]])>max(these_rock_collections$ref_pubyr[these_rock_collections$geological_group==relv_groups[gr]]))	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[rg],rownames(pbdb_rocks))));
 							} else	{
 							kill_me <- unique(c(kill_me,match(rownames(this_case)[gr],rownames(pbdb_rocks))));
@@ -12187,7 +13065,7 @@ return(output);
 # rock_no <- 512
 # pbdb_rocks <- organized_pbdb_rocks$pbdb_rocks; wagner_rocks <- rock_database;
 # pbdb_rocks <- tolower_dataframe(pbdb_rocks); wagner_rocks <- lower_wagner_rocks;
-match_organized_pbdb_rock_to_external_database <- function(rock_no,pbdb_rocks,wagner_rocks,geoplate_list,senior=F)	{
+match_organized_pbdb_rock_to_external_database <- function(rock_no,pbdb_rocks,wagner_rocks,geoplate_list,senior=FALSE)	{
 pbdb_unit_fields <- colnames(pbdb_rocks);
 pbdb_rock_unit_fields <- match(c("full_name","rock_unit_clean_basic","rock_unit_clean_no_rock","rock_unit_clean_no_rock_formal"),pbdb_unit_fields);
 pbdb_member_fields <- match(c("member","member_clean_basic","member_clean_no_rock","member_clean_no_rock_formal"),pbdb_unit_fields);
@@ -12203,18 +13081,18 @@ wag_group_fields <- match(c("group","group_clean_basic","group_clean_no_rock","g
 wrocks <- nrow(wagner_rocks);
 #print(pbdb_rocks$full_name[rock_no]);
 orig_rock_info <- pbdb_rocks[rock_no,];
-poss_matches <- unique(which(wagner_rocks==pbdb_rocks$full_name[rock_no],arr.ind = TRUE)[,1]);
-if (pbdb_rocks$rock_unit_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_basic[rock_no],arr.ind = TRUE)[,1])));
-if (pbdb_rocks$rock_unit_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
-if (pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
+poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$full_name[rock_no],arr.ind = TRUE)[,1]);
+if (pbdb_rocks$rock_unit_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_basic[rock_no],arr.ind = TRUE)[,1])));
+if (pbdb_rocks$rock_unit_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
+if (pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
 if (length(poss_matches)==0)	{
 	if (gsub("\\[","",pbdb_rocks$full_name[rock_no])!=pbdb_rocks$full_name[rock_no])	{
 		# this is a group
-		poss_matches <- unique(which(wagner_rocks==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
+		poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
 		poss_matches <- poss_matches[wagner_rocks$group[poss_matches]==pbdb_rocks$group[rock_no]];
 		poss_matches <- poss_matches[wagner_rocks$formation[poss_matches]=="" & wagner_rocks$member[poss_matches]==""];
 		if (length(poss_matches)==0)	{
-			poss_matches <- unique(which(wagner_rocks==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
+			poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
 			poss_matches <- poss_matches[wagner_rocks$formation[poss_matches]==pbdb_rocks$group[rock_no]];
 			poss_matches <- poss_matches[wagner_rocks$member[poss_matches]==""];
 			}
@@ -12222,12 +13100,12 @@ if (length(poss_matches)==0)	{
 		# this is a member that is not entered independently
 		if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	{
 		# member is just upper or limestone or upper limestone
-			if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member_clean_no_rock[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member_clean_basic[rock_no]!="")				poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_basic[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member[rock_no]!="")							poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_no_rock[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_basic[rock_no]!="")				poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_basic[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member[rock_no]!="")							poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member[rock_no],arr.ind = TRUE)[,1])));
 			if (length(poss_matches)==0)	{
-				poss_matches <- unique(which(wagner_rocks==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]);
+				poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]);
 				poss_matches <- poss_matches[wagner_rocks$member_clean_no_rock_formal[poss_matches]!=""];
 				retain <- c();
 				for (pm in 1:length(poss_matches))	{
@@ -12238,23 +13116,23 @@ if (length(poss_matches)==0)	{
 				poss_matches <- poss_matches[retain];
 				}
 			} else	{
-			if (pbdb_rocks$formation[rock_no]!="")						poss_matches <- unique(which(wagner_rocks==pbdb_rocks$formation[rock_no],arr.ind = TRUE)[,1]);
-			if (pbdb_rocks$formation_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_basic[rock_no],arr.ind = TRUE)[,1]));
-			if (pbdb_rocks$formation_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_no_rock[rock_no],arr.ind = TRUE)[,1]));
-			if (pbdb_rocks$formation_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation[rock_no]!="")						poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$formation[rock_no],arr.ind = TRUE)[,1]);
+			if (pbdb_rocks$formation_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_basic[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]));
 			}
 		} else	{
-		hide <- wagner_rocks;
+		hide <- wagner_rocks[,rock_cols];
 		go_seek <- pbdb_rocks[rock_no,pbdb_rock_unit_fields]
 		poss_matches <- unique(as.vector(unlist(sapply(go_seek,find_row_with_value,hide))));
 		}
 	}
 
 if (length(poss_matches)==0 && gsub("'","",pbdb_rocks$full_name[rock_no]) != pbdb_rocks$full_name[rock_no])	{
-	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$full_name[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_basic[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]),arr.ind = TRUE)[,1]);
+	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$full_name[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_basic[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]),arr.ind = TRUE)[,1]);
 	if (length(poss_matches)>0)		pbdb_rocks[rock_no,] <- gsub("''","",pbdb_rocks[rock_no,]);
 	}
 
@@ -12432,18 +13310,18 @@ wag_group_fields <- match(c("group","group_clean_basic","group_clean_no_rock","g
 wrocks <- nrow(wagner_rocks);
 #print(pbdb_rocks$full_name[rock_no]);
 orig_rock_info <- pbdb_rocks[rock_no,];
-poss_matches <- unique(which(wagner_rocks==pbdb_rocks$full_name[rock_no],arr.ind = TRUE)[,1]);
-if (pbdb_rocks$rock_unit_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_basic[rock_no],arr.ind = TRUE)[,1])));
-if (pbdb_rocks$rock_unit_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
-if (pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
+poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$full_name[rock_no],arr.ind = TRUE)[,1]);
+if (pbdb_rocks$rock_unit_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_basic[rock_no],arr.ind = TRUE)[,1])));
+if (pbdb_rocks$rock_unit_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
+if (pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
 if (length(poss_matches)==0)	{
 	if (gsub("\\[","",pbdb_rocks$full_name[rock_no])!=pbdb_rocks$full_name[rock_no])	{
 		# this is a group
-		poss_matches <- unique(which(wagner_rocks==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
+		poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
 		poss_matches <- poss_matches[wagner_rocks$group[poss_matches]==pbdb_rocks$group[rock_no]];
 		poss_matches <- poss_matches[wagner_rocks$formation[poss_matches]=="" & wagner_rocks$member[poss_matches]==""];
 		if (length(poss_matches)==0)	{
-			poss_matches <- unique(which(wagner_rocks==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
+			poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$group[rock_no],arr.ind = TRUE)[,1]);
 			poss_matches <- poss_matches[wagner_rocks$formation[poss_matches]==pbdb_rocks$group[rock_no]];
 			poss_matches <- poss_matches[wagner_rocks$member[poss_matches]==""];
 			}
@@ -12451,12 +13329,12 @@ if (length(poss_matches)==0)	{
 		# this is a member that is not entered independently
 		if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	{
 		# member is just upper or limestone or upper limestone
-			if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member_clean_no_rock[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member_clean_basic[rock_no]!="")				poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member_clean_basic[rock_no],arr.ind = TRUE)[,1])));
-			if (pbdb_rocks$member[rock_no]!="")							poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks==pbdb_rocks$member[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_no_rock[rock_no]!="")			poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_no_rock[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member_clean_basic[rock_no]!="")				poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member_clean_basic[rock_no],arr.ind = TRUE)[,1])));
+			if (pbdb_rocks$member[rock_no]!="")							poss_matches <- unique(c(poss_matches,unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$member[rock_no],arr.ind = TRUE)[,1])));
 			if (length(poss_matches)==0)	{
-				poss_matches <- unique(which(wagner_rocks==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]);
+				poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]);
 				poss_matches <- poss_matches[wagner_rocks$member_clean_no_rock_formal[poss_matches]!=""];
 				retain <- c();
 				for (pm in 1:length(poss_matches))	{
@@ -12467,10 +13345,10 @@ if (length(poss_matches)==0)	{
 				poss_matches <- poss_matches[retain];
 				}
 			} else	{
-			if (pbdb_rocks$formation[rock_no]!="")						poss_matches <- unique(which(wagner_rocks==pbdb_rocks$formation[rock_no],arr.ind = TRUE)[,1]);
-			if (pbdb_rocks$formation_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_basic[rock_no],arr.ind = TRUE)[,1]));
-			if (pbdb_rocks$formation_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_no_rock[rock_no],arr.ind = TRUE)[,1]));
-			if (pbdb_rocks$formation_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,which(wagner_rocks==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation[rock_no]!="")						poss_matches <- unique(which(wagner_rocks[,rock_cols]==pbdb_rocks$formation[rock_no],arr.ind = TRUE)[,1]);
+			if (pbdb_rocks$formation_clean_basic[rock_no]!="")			poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_basic[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation_clean_no_rock[rock_no]!="")		poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock[rock_no],arr.ind = TRUE)[,1]));
+			if (pbdb_rocks$formation_clean_no_rock_formal[rock_no]!="")	poss_matches <- unique(c(poss_matches,which(wagner_rocks[,rock_cols]==pbdb_rocks$formation_clean_no_rock_formal[rock_no],arr.ind = TRUE)[,1]));
 			}
 		} else	{
 		hide <- wagner_rocks;
@@ -12480,10 +13358,10 @@ if (length(poss_matches)==0)	{
 	}
 
 if (length(poss_matches)==0 && gsub("'","",pbdb_rocks$full_name[rock_no]) != pbdb_rocks$full_name[rock_no])	{
-	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$full_name[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_basic[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock[rock_no]),arr.ind = TRUE)[,1]);
-	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]),arr.ind = TRUE)[,1]);
+	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$full_name[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_basic[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock[rock_no]),arr.ind = TRUE)[,1]);
+	if (length(poss_matches)==0)	poss_matches <- unique(which(wagner_rocks[,rock_cols]==gsub("'","",pbdb_rocks$rock_unit_clean_no_rock_formal[rock_no]),arr.ind = TRUE)[,1]);
 	if (length(poss_matches)>0)		pbdb_rocks[rock_no,] <- gsub("''","",pbdb_rocks[rock_no,]);
 	}
 
@@ -12600,10 +13478,10 @@ if (length(unique(wagner_rocks$rock_no_sr[poss_matches]))>1 && pbdb_rocks$group[
 return(poss_matches);
 }
 
-# rock_no <- 1425; rock_no <- 1440;
+# rock_no <- 5; rock_no <- 1440;
 match_possible_homonym_rocks_to_external_database <- function(rock_no,pbdb_rocks,wagner_rocks,paleodb_collections,site_list,geoplate_list)	{
 poss_matches <- possible_matches_for_organized_pbdb_rock_to_external_database(rock_no,pbdb_rocks,wagner_rocks,geoplate_list);
-if (length(poss_matches)>0)	{000
+if (length(poss_matches)>0)	{
 	nsites <- nrow(paleodb_collections);
 	lbw <- wagner_rocks$ma_lb[poss_matches];
 	ubw <- wagner_rocks$ma_ub[poss_matches];
@@ -12671,7 +13549,17 @@ paleodb_collections$ma_lb <- paleodb_collections$max_ma;
 paleodb_collections$ma_ub <- paleodb_collections$min_ma;
 
 # NAs have crept in here somehow: fix that.
-nn <- match(paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0],wagner_rocks$rock_no)
+nn <- match(paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0],wagner_rocks$rock_no);
+if (sum(is.na(nn))>0)	{
+	na_rocks <- paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0][is.na(nn)];
+	na_coll <- paleodb_collections$collection_no[paleodb_collections$rock_no_sr!=0][is.na(nn)];
+	nnn <- 0;
+	while (nnn < length(na_coll))	{
+		nnn <- nnn+1;
+		paleodb_collections[match(na_coll[nnn],paleodb_collections$collection_no),];
+		}
+	}
+
 paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0][is.na(nn)]
 paleodb_collections$ma_lb[paleodb_collections$rock_no_sr!=0] <- wagner_rocks$ma_lb[match(paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0],wagner_rocks$rock_no)];
 paleodb_collections$ma_ub[paleodb_collections$rock_no_sr!=0] <- wagner_rocks$ma_ub[match(paleodb_collections$rock_no_sr[paleodb_collections$rock_no_sr!=0],wagner_rocks$rock_no)];
@@ -12700,6 +13588,7 @@ further_refine_pbdb_collections_w_zones <- function(redone_collections,zone_data
 nsites <- nrow(redone_collections);
 zone_thesaurus <- accersi_zone_thesaurus(zone_database);
 zd <- nrow(zone_database);
+if (is.null(zd))	return(redone_collections);
 zt <- nrow(zone_thesaurus);
 rzd <- nrow(rock_to_zone_database);
 
@@ -13129,15 +14018,10 @@ lower_wagner_rocks <- tolower_dataframe(rock_database);
 rock_no <- 1:nrow(pbdb_rocks);
 print("Matching rock units in PBDB collections to rock unit database");
 rock_no_sr <- rock_no_or <- rock_no;
-rock_no_sr <- rock_no_or <- pbapply::pbsapply(rock_no,match_organized_pbdb_rock_to_external_database,pbdb_rocks=lower_pbdb_rocks,wagner_rocks=lower_wagner_rocks,geoplate_list=geoplate_list);
-#rock_no <- rock_no[rn]
-#for (rn in 1:length(rock_no))	rock_no_sr[rn] <- rock_no_or[rn] <- match_organized_pbdb_rock_to_external_database(rock_no[rn],pbdb_rocks=lower_pbdb_rocks,wagner_rocks=lower_wagner_rocks,geoplate_list=geoplate_list);
+rock_no_sr <- rock_no_or <- pbapply::pbsapply(rock_no_or,match_organized_pbdb_rock_to_external_database,pbdb_rocks=lower_pbdb_rocks,wagner_rocks=lower_wagner_rocks,geoplate_list=geoplate_list);
+
 rock_no_sr[rock_no_sr!=0] <- rock_database$rock_no_sr[match(rock_no_sr[rock_no_sr!=0],rock_database$rock_no)];
-#rock_no_sr <- vector(length=nrocks)
-#for (rr in 1:nrocks)	{
-#	if (rr%%100==0)	print(rr/nrocks);
-#	rock_no_sr[rr] <- match_organized_pbdb_rock_to_external_database(rock_no[rr],pbdb_rocks=lower_pbdb_rocks,wagner_rocks=lower_wagner_rocks,geoplate_list=geoplate_list);
-#	}
+
 missing_rocks <- pbdb_rocks$full_name[rock_no_sr==0];
 missing_rock_nos <- match(missing_rocks,pbdb_rocks$full_name);
 if (is.null(pbdb_rocks$rock_no_sr))	{

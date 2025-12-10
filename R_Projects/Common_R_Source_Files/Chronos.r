@@ -251,47 +251,164 @@ if (onset)	{
 	}
 }
 
-#slice <- "Cm41"
+#slice <- "Rhy"
 accersi_initial_stages_from_stage_slices <- function(slice)  {
-return(paste(strsplit(slice,"")[[1]][1:(length(strsplit(slice,"")[[1]])-1)],collapse=""));
+breakdown <- strsplit(slice,"")[[1]];
+if (breakdown[length(breakdown)] %in% as.character(0:9))	{
+	return(paste(strsplit(slice,"")[[1]][1:(length(strsplit(slice,"")[[1]])-1)],collapse=""));
+	} else	{
+	return(slice);
+	}
 }
 
 # lump overly short stage slices together
-#time_scale <- stage_slices;too_short=2;max_length=3;
-adjacent_stage_slice_lumping <- function(time_scale,too_short=2,max_length=3)  {
+#time_scale_to_condense=finest_chronostrat;too_short=2;max_length=3;
+adjacent_stage_slice_lumping <- function(time_scale_to_condense,too_short=2,max_length=3)  {
 # keep working on this!
-time_scale <- time_scale[order(-abs(time_scale$ma_lb)),]
-time_scale$initial_stage <- sapply(time_scale$interval,accersi_initial_stages_from_stage_slices);
-time_scale$durations <- abs(time_scale$ma_lb-time_scale$ma_ub);
-hobbits <- time_scale$interval[time_scale$durations<too_short];
-hobbits <- hobbits[order(time_scale$durations[time_scale$durations<too_short])];
+condensed_scale <- time_scale_to_condense[order(-abs(time_scale_to_condense$ma_lb)),]
+options(warn=0);
+condensed_scale$initial_stage <- sapply(condensed_scale$interval,accersi_initial_stages_from_stage_slices);
+options(warn=2);
+condensed_scale$duration <- abs(condensed_scale$ma_lb-condensed_scale$ma_ub);
+hobbits <- condensed_scale$interval[condensed_scale$duration<too_short];
+hobbits_orig <- hobbits <- hobbits[order(condensed_scale$duration[condensed_scale$duration<too_short])];
+examined_hobbits <- lumped_hobbits <- c();
+#while (h < length(hobbits))  {
+#	j <- j+1;
+#	hobbits_last <- hobbits;
+#for (h in 1:length(hobbits))	{
+for (h in 1:length(hobbits))	{
+	if (hobbits[h] %in% condensed_scale$interval)	{
+		examined_hobbits <- c(examined_hobbits,hobbits[h]);
+		initial_stage <- condensed_scale$initial_stage[match(hobbits[h],condensed_scale$interval)];
+		initial_color <- condensed_scale$color[match(hobbits[h],condensed_scale$interval)];
+		this_stage_slices <- condensed_scale[condensed_scale$initial_stage %in% initial_stage,];
+		tslices <- nrow(this_stage_slices);
+#		keep_test <- round(this_stage_slices$ma_lb-this_stage_slices$duration,0)[1:(tslices-1)]==round(this_stage_slices$ma_lb[2:tslices],0)
+#		keep_test <- c(keep_test,keep_test[tslices-1]);
+#		this_stage_slices <- this_stage_slices[keep_test,];
+		t_s_s <- nrow(this_stage_slices);
+		t_s_n <- match(hobbits[h],this_stage_slices$interval);
+		cum_durations_up <- cumsum(this_stage_slices$duration)
+		cum_durations_dn <- cumsum(this_stage_slices$duration[t_s_s:1])[t_s_s:1];
+		cum_durations_up_h <- cumsum(this_stage_slices$duration[t_s_n:t_s_s]);
+		cum_durations_dn_h <- cumsum(this_stage_slices$duration[t_s_n:1]);
+		slices_up <- this_stage_slices$interval[t_s_n:t_s_s];
+		slices_dn <- this_stage_slices$interval[t_s_n:1];
+		if (max(cum_durations_up)<=max_length)  {
+			condensed_scale$interval[condensed_scale$initial_stage %in% initial_stage] <- initial_stage;
+			condensed_scale$color[condensed_scale$initial_stage %in% initial_stage] <- initial_color;
+#			time_scale$interval_sr[time_scale$initial_stage %in% initial_stage] <- initial_stage;
+			condensed_scale$ma_lb[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb[1];
+			if ("ma_lb_2012" %in% colnames(condensed_scale))
+				condensed_scale$ma_lb_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[1];
+			condensed_scale$ma_ub[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub[t_s_s];
+			if ("ma_ub_2012" %in% colnames(condensed_scale))
+				condensed_scale$ma_ub_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[t_s_s];
+			condensed_scale$terminal_biozone[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone[t_s_s];
+			condensed_scale$terminal_biozone_zone_no[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_zone_no[t_s_s];
+			condensed_scale$terminal_biozone_scale[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_scale[t_s_s];
+			condensed_scale$terminal_zone_modifier[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_zone_modifier[t_s_s];
+			} else  {
+			if (sum(cum_durations_up_h<max_length)<sum(cum_durations_dn_h<max_length) || (sum(cum_durations_up_h<max_length)>1 & max(cum_durations_dn_h[cum_durations_dn_h<max_length])<max(cum_durations_up_h[cum_durations_up_h<max_length])))	{
+				lumped_slices <- slices_dn[cum_durations_dn_h<max_length];
+				lumped_slices <- lumped_slices[length(lumped_slices):1];
+				new_nos <- match(lumped_slices,this_stage_slices$interval);
+				new_slice <- paste(initial_stage,new_nos[1],"-",max(new_nos),sep="");
+#				time_scale$interval_sr[time_scale$interval %in% lumped_slices] <- new_slice;
+				condensed_scale$color[condensed_scale$interval %in% lumped_slices] <- initial_color;
+				condensed_scale$ma_lb[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
+				if ("ma_lb_2012" %in% colnames(condensed_scale))
+					condensed_scale$ma_lb_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
+				condensed_scale$ma_ub[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
+				if ("ma_ub_2012" %in% colnames(condensed_scale))
+					condensed_scale$ma_ub_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
+				condensed_scale$basal_biozone[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
+				condensed_scale$basal_biozone_zone_no[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
+				condensed_scale$basal_biozone_scale[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+				condensed_scale$basal_zone_modifier[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+				condensed_scale$terminal_biozone[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
+				condensed_scale$terminal_biozone_zone_no[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
+				condensed_scale$terminal_biozone_scale[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
+				condensed_scale$terminal_zone_modifier[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
+				condensed_scale$interval[condensed_scale$interval %in% lumped_slices] <- new_slice;
+				} else if (sum(cum_durations_up_h<max_length)>sum(cum_durations_dn_h<max_length) || (sum(cum_durations_up_h<max_length)>1 & max(cum_durations_dn_h[cum_durations_dn_h<max_length])>=max(cum_durations_up_h[cum_durations_up_h<max_length])))	{
+				lumped_slices <- slices_up[cum_durations_up_h<max_length];
+				new_nos <- sort(match(lumped_slices,this_stage_slices$interval));
+				new_slice <- paste(initial_stage,new_nos[1],"-",max(new_nos),sep="");
+#			time_scale$interval_sr[time_scale$interval %in% lumped_slices] <- new_slice;
+				condensed_scale$color[condensed_scale$interval %in% lumped_slices] <- initial_color;
+				condensed_scale$ma_lb[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
+				if ("ma_lb_2012" %in% colnames(condensed_scale))
+					condensed_scale$ma_lb_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
+				condensed_scale$ma_ub[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
+				if ("ma_ub_2012" %in% colnames(condensed_scale))
+					condensed_scale$ma_ub_2012[condensed_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
+				condensed_scale$basal_biozone[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
+				condensed_scale$basal_biozone_zone_no[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
+				condensed_scale$basal_biozone_scale[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+				condensed_scale$basal_zone_modifier[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+				condensed_scale$terminal_biozone[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
+				condensed_scale$terminal_biozone_zone_no[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
+				condensed_scale$terminal_biozone_scale[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
+				condensed_scale$terminal_zone_modifier[condensed_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
+				condensed_scale$interval[condensed_scale$interval %in% lumped_slices] <- new_slice;
+				}
+			if (nrow(condensed_scale)!=length(unique(condensed_scale$interval)))	{
+				condensed_scale <- condensed_scale[match(unique(condensed_scale$interval),condensed_scale$interval),];
+				condensed_scale$duration <- abs(condensed_scale$ma_lb-condensed_scale$ma_ub);
+				lumped_hobbits <- c(lumped_hobbits,hobbits[h]);
+				}
+			}
+		} # skip already lumped substages
+	}
+unlumped_hobbits <- hobbits[hobbits %in% condensed_scale$interval];
+condensed_scale$interval_alt <- condensed_scale$interval;
+return(condensed_scale);
+}
 
+#time_scale_to_condense <- finest_chronostrat;too_short=2;max_length=3;
+adjacent_stage_slice_lumping_old <- function(time_scale_to_condense,too_short=2,max_length=3)  {
+# keep working on this!
+time_scale_to_condense <- time_scale_to_condense[order(-abs(time_scale_to_condense$ma_lb)),]
+time_scale_to_condense$initial_stage <- sapply(time_scale_to_condense$interval,accersi_initial_stages_from_stage_slices);
+time_scale_to_condense$duration <- abs(time_scale_to_condense$ma_lb-time_scale_to_condense$ma_ub);
+hobbits <- time_scale_to_condense$interval[time_scale_to_condense$duration<too_short];
+hobbits_orig <- hobbits <- hobbits[order(time_scale_to_condense$duration[time_scale_to_condense$duration<too_short])];
+examined_hobbits <- c();
 #example1 <- example2 <- example3 <- example4 <- c();
 h <- 1;
+j <- 0;
 while (h < length(hobbits))  {
-	initial_stage <- time_scale$initial_stage[match(hobbits[h],time_scale$interval)];
-	this_stage_slices <- time_scale[time_scale$initial_stage %in% initial_stage,];
+	j <- j+1;
+	hobbits_last <- hobbits;
+#for (h in 1:length(hobbits))	{
+	examined_hobbits <- c(examined_hobbits,hobbits[h]);
+	print(c(j,hobbits[h]));
+	if (hobbits[h]=="Tr2") print(j);
+	initial_stage <- time_scale_to_condense$initial_stage[match(hobbits[h],time_scale_to_condense$interval)];
+	this_stage_slices <- time_scale_to_condense[time_scale_to_condense$initial_stage %in% initial_stage,];
 	t_s_s <- nrow(this_stage_slices);
 	t_s_n <- match(hobbits[h],this_stage_slices$interval);
-	cum_durations_up <- cumsum(this_stage_slices$durations)
-	cum_durations_dn <- cumsum(this_stage_slices$durations[t_s_s:1])[t_s_s:1];
-	cum_durations_up_h <- cumsum(this_stage_slices$durations[t_s_n:t_s_s]);
-	cum_durations_dn_h <- cumsum(this_stage_slices$durations[t_s_n:1]);
+	cum_durations_up <- cumsum(this_stage_slices$duration)
+	cum_durations_dn <- cumsum(this_stage_slices$duration[t_s_s:1])[t_s_s:1];
+	cum_durations_up_h <- cumsum(this_stage_slices$duration[t_s_n:t_s_s]);
+	cum_durations_dn_h <- cumsum(this_stage_slices$duration[t_s_n:1]);
 	slices_up <- this_stage_slices$interval[t_s_n:t_s_s];
 	slices_dn <- this_stage_slices$interval[t_s_n:1];
 	if (max(cum_durations_up)<=max_length)  {
 #		time_scale$interval_sr[time_scale$initial_stage %in% initial_stage] <- initial_stage;
-		time_scale$interval[time_scale$initial_stage %in% initial_stage] <- initial_stage;
-		time_scale$ma_lb[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb[1];
-		if ("ma_lb_2012" %in% colnames(time_scale))
-  			time_scale$ma_lb_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[1];
-		time_scale$ma_ub[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub[t_s_s];
-		if ("ma_ub_2012" %in% colnames(time_scale))
-  			time_scale$ma_ub_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[t_s_s];
-		time_scale$terminal_biozone[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone[t_s_s];
-		time_scale$terminal_biozone_zone_no[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_zone_no[t_s_s];
-		time_scale$terminal_biozone_scale[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_scale[t_s_s];
-		time_scale$terminal_zone_modifier[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$terminal_zone_modifier[t_s_s];
+		time_scale_to_condense$interval[time_scale_to_condense$initial_stage %in% initial_stage] <- initial_stage;
+		time_scale_to_condense$ma_lb[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb[1];
+		if ("ma_lb_2012" %in% colnames(time_scale_to_condense))
+  			time_scale_to_condense$ma_lb_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[1];
+		time_scale_to_condense$ma_ub[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub[t_s_s];
+		if ("ma_ub_2012" %in% colnames(time_scale_to_condense))
+  			time_scale_to_condense$ma_ub_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[t_s_s];
+		time_scale_to_condense$terminal_biozone[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone[t_s_s];
+		time_scale_to_condense$terminal_biozone_zone_no[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_zone_no[t_s_s];
+		time_scale_to_condense$terminal_biozone_scale[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$terminal_biozone_scale[t_s_s];
+		time_scale_to_condense$terminal_zone_modifier[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$terminal_zone_modifier[t_s_s];
     } else  {
 		if (sum(cum_durations_up_h<max_length)<sum(cum_durations_dn_h<max_length) || (sum(cum_durations_up_h<max_length)>1 & max(cum_durations_dn_h[cum_durations_dn_h<max_length])<max(cum_durations_up_h[cum_durations_up_h<max_length])))	{
 			lumped_slices <- slices_dn[cum_durations_dn_h<max_length];
@@ -299,55 +416,56 @@ while (h < length(hobbits))  {
 			new_nos <- match(lumped_slices,this_stage_slices$interval);
 			new_slice <- paste(initial_stage,new_nos[1],"-",max(new_nos),sep="");
 #			time_scale$interval_sr[time_scale$interval %in% lumped_slices] <- new_slice;
-			time_scale$ma_lb[time_scale$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
-  		if ("ma_lb_2012" %in% colnames(time_scale))
-  		  time_scale$ma_lb_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
-			time_scale$ma_ub[time_scale$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
-  		if ("ma_ub_2012" %in% colnames(time_scale))
-  		  time_scale$ma_ub_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
-			time_scale$basal_biozone[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
-			time_scale$basal_biozone_zone_no[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
-			time_scale$basal_biozone_scale[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
-			time_scale$basal_zone_modifier[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
-			time_scale$terminal_biozone[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
-			time_scale$terminal_biozone_zone_no[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
-			time_scale$terminal_biozone_scale[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
-			time_scale$terminal_zone_modifier[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
-			time_scale$interval[time_scale$interval %in% lumped_slices] <- new_slice;
+			time_scale_to_condense$ma_lb[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
+  		if ("ma_lb_2012" %in% colnames(time_scale_to_condense))
+  		  time_scale_to_condense$ma_lb_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
+			time_scale_to_condense$ma_ub[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
+  		if ("ma_ub_2012" %in% colnames(time_scale_to_condense))
+  		  time_scale_to_condense$ma_ub_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
+			time_scale_to_condense$basal_biozone[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
+			time_scale_to_condense$basal_biozone_zone_no[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
+			time_scale_to_condense$basal_biozone_scale[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+			time_scale_to_condense$basal_zone_modifier[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+			time_scale_to_condense$terminal_biozone[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
+			time_scale_to_condense$terminal_biozone_zone_no[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
+			time_scale_to_condense$terminal_biozone_scale[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
+			time_scale_to_condense$terminal_zone_modifier[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
+			time_scale_to_condense$interval[time_scale_to_condense$interval %in% lumped_slices] <- new_slice;
 			} else if (sum(cum_durations_up_h<max_length)>sum(cum_durations_dn_h<max_length) || (sum(cum_durations_up_h<max_length)>1 & max(cum_durations_dn_h[cum_durations_dn_h<max_length])>=max(cum_durations_up_h[cum_durations_up_h<max_length])))	{
 			lumped_slices <- slices_up[cum_durations_up_h<max_length];
 			new_nos <- sort(match(lumped_slices,this_stage_slices$interval));
 			new_slice <- paste(initial_stage,new_nos[1],"-",max(new_nos),sep="");
 #			time_scale$interval_sr[time_scale$interval %in% lumped_slices] <- new_slice;
-			time_scale$ma_lb[time_scale$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
-  		if ("ma_lb_2012" %in% colnames(time_scale))
-  		  time_scale$ma_lb_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
-			time_scale$ma_ub[time_scale$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
-  		if ("ma_ub_2012" %in% colnames(time_scale))
-  		  time_scale$ma_ub_2012[time_scale$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
-			time_scale$basal_biozone[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
-			time_scale$basal_biozone_zone_no[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
-			time_scale$basal_biozone_scale[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
-			time_scale$basal_zone_modifier[time_scale$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
-			time_scale$terminal_biozone[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
-			time_scale$terminal_biozone_zone_no[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
-			time_scale$terminal_biozone_scale[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
-			time_scale$terminal_zone_modifier[time_scale$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
-			time_scale$interval[time_scale$interval %in% lumped_slices] <- new_slice;
+			time_scale_to_condense$ma_lb[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$ma_lb[min(new_nos)];
+  		if ("ma_lb_2012" %in% colnames(time_scale_to_condense))
+  		  time_scale_to_condense$ma_lb_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_lb_2012[min(new_nos)];
+			time_scale_to_condense$ma_ub[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$ma_ub[max(new_nos)];
+  		if ("ma_ub_2012" %in% colnames(time_scale_to_condense))
+  		  time_scale_to_condense$ma_ub_2012[time_scale_to_condense$initial_stage %in% initial_stage] <- this_stage_slices$ma_ub_2012[max(new_nos)];
+			time_scale_to_condense$basal_biozone[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone[min(new_nos)];
+			time_scale_to_condense$basal_biozone_zone_no[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_zone_no[min(new_nos)];
+			time_scale_to_condense$basal_biozone_scale[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+			time_scale_to_condense$basal_zone_modifier[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$basal_biozone_scale[min(new_nos)];
+			time_scale_to_condense$terminal_biozone[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone[max(new_nos)];
+			time_scale_to_condense$terminal_biozone_zone_no[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_zone_no[max(new_nos)];
+			time_scale_to_condense$terminal_biozone_scale[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_biozone_scale[max(new_nos)];
+			time_scale_to_condense$terminal_zone_modifier[time_scale_to_condense$interval %in% lumped_slices] <- this_stage_slices$terminal_zone_modifier[max(new_nos)];
+			time_scale_to_condense$interval[time_scale_to_condense$interval %in% lumped_slices] <- new_slice;
 			}
 		}
-	if (nrow(time_scale)==length(unique(time_scale$interval)))	{
+	if (nrow(time_scale_to_condense)==length(unique(time_scale_to_condense$interval)))	{
 		h <- h+1;
 		} else	{
-		time_scale <- time_scale[match(unique(time_scale$interval),time_scale$interval),];
-		time_scale$durations <- abs(time_scale$ma_lb-time_scale$ma_ub);
-		hobbits <- hobbits[hobbits %in% time_scale$interval];
+		time_scale_to_condense <- time_scale_to_condense[match(unique(time_scale_to_condense$interval),time_scale_to_condense$interval),];
+		time_scale_to_condense$duration <- abs(time_scale_to_condense$ma_lb-time_scale_to_condense$ma_ub);
+		hobbits <- hobbits[hobbits %in% time_scale_to_condense$interval];
+		hobbits <- hobbits[!hobbits %in% examined_hobbits];
+		h <- 1;
 #		hobbits <- hobbits[c((1:h),((h+1):length(hobbits))[hobbits[(h+1):length(hobbits)] %in% time_scale$interval])];
 		}
-#	print(c(h,hobbits));
 	}
-time_scale$interval_alt <- time_scale$interval;
-return(time_scale);
+time_scale_to_condense$interval_alt <- time_scale_to_condense$interval;
+return(time_scale_to_condense);
 }
 
 #lb_a <- sampled_species_sepkoski_compendium$fo_lb[1];
